@@ -143,8 +143,9 @@ if st.session_state.report_content:
     with col_pdf:
         st.subheader("📄 專利原件 (左側獨立滾動)")
         if uploaded_file:
-            # 🌟 換成全新的專屬 PDF 閱讀器，完美避開 Chrome 封鎖！
-            pdf_viewer(input=uploaded_file.getvalue(), width=700)
+            # 🌟 加入固定高度的容器，強迫產生獨立捲軸
+            with st.container(height=800):
+                pdf_viewer(input=uploaded_file.getvalue(), width=700)
 
     with col_report:
         st.subheader("🧠 深度戰略分析報告")
