@@ -7,6 +7,9 @@ import io
 from docx import Document
 
 from streamlit_pdf_viewer import pdf_viewer  # 🌟 新增：專屬 PDF 閱讀器
+import pypdfium2 as pdfium
+from PIL import Image, ImageDraw
+import json
 # 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -147,7 +150,7 @@ if st.session_state.report_content:
             with st.container(height=800):
                 # 🌟 修改 2：把原本的 width=700 縮小成 550
                 pdf_viewer(input=uploaded_file.getvalue(), width=550)
-                
+
     with col_report:
         st.subheader("🧠 深度戰略分析報告")
         # ... (後面的下載按鈕與 markdown 都不變) ...
@@ -164,3 +167,78 @@ if st.session_state.report_content:
         report_container = st.container(height=800)
         with report_container:
             st.markdown(st.session_state.report_content)
+            st.markdown("---")
+st.subheader("🖼️ 代表圖鷹眼自動標註 (高畫質 AI 視覺)")
+
+if st.button("👁️ 啟動圖面鷹眼掃描", use_container_width=True):
+    with st.spinner("正在將專利代表圖轉換為超高解析度影像，並請 AI 尋找關鍵字座標..."):
+        try:
+            # 1. 抓取 PDF 第一頁並轉為 3 倍高畫質圖片 (解決畫質模糊痛點！)
+            pdf = pdfium.PdfDocument(uploaded_file.getvalue())
+            page = pdf[0] 
+            bitmap = page.render(scale=3.0) 
+            pil_image = bitmap.to_pil()
+            pdf.close()
+
+            # 2. 存成暫存檔給 Gemini 看
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as img_tmp:
+                pil_image.save(img_tmp.name, format="JPEG")
+                img_path = img_tmp.name
+
+            vision_file = genai.upload_file(img_path)
+
+            # 3. 呼叫 Gemini Vision 算出 AutoCAD 等級的相對座標
+            vision_prompt = """
+            你是一個專業的專利圖面分析系統。請檢視這張機車專利工程圖。
+            請找出圖面中最重要的 3 個帶有數字標號的機車元件（例如：水泵、凸輪軸、汽缸頭等）。
+            請以 JSON 格式回傳，格式如下：
+            [
+              {"name": "元件中文名稱與標號", "box": [ymin, xmin, ymax, xmax]}
+            ]
+            注意：box 座標必須是介於 0 到 1000 之間的整數，代表在圖片上的相對百分比位置。
+            """
+            vision_response = model.generate_content([vision_file, vision_prompt])
+            
+            # 清理 JSON 格式
+            response_text = vision_response.text.replace('```json', '').replace('```', '').strip()
+            bounding_boxes = json.loads(response_text)
+
+            # 4. 在圖片上精準畫出紅色追蹤框
+            draw = ImageDraw.Draw(pil_image)
+            img_width, img_height = pil_image.size
+            
+            for i, item in enumerate(bounding_boxes):
+                ymin, xmin, ymax, xmax = item["box"]
+                
+                # 將 0-1000 的比例還原回真實的高畫質像素座標
+                abs_xmin = int((xmin / 1000) * img_width)
+                abs_ymin = int((ymin / 1000) * img_height)
+                abs_xmax = int((xmax / 1000) * img_width)
+                abs_ymax = int((ymax / 1000) * img_height)
+                
+                # 畫紅色粗框
+                draw.rectangle([abs_xmin, abs_ymin, abs_xmax, abs_ymax], outline="red", width=8)
+                # 畫個實心紅底方塊放數字 (避免中文在圖片上亂碼，我們用數字代號)
+                draw.rectangle([abs_xmin, abs_ymin-40, abs_xmin+40, abs_ymin], fill="red")
+                # 寫上白色的編號
+                draw.text((abs_xmin+12, abs_ymin-32), str(i+1), fill="white", align="center")
+            
+            # 5. 顯示超清晰圖片與對照表
+            col_img, col_list = st.columns([2, 1])
+            with col_img:
+                # 這張圖片可以點擊放大，畫質絕對讓您滿意！
+                st.image(pil_image, caption="AI 鷹眼鎖定：關鍵技術特徵", use_container_width=True)
+            
+            with col_list:
+                st.success("✅ 鷹眼鎖定完成！")
+                st.markdown("### 🎯 標記對照表")
+                for i, item in enumerate(bounding_boxes):
+                    st.markdown(f"**🔴 標記 {i+1}：** {item['name']}")
+
+            os.remove(img_path)
+            genai.delete_file(vision_file.name)
+
+        except Exception as e:
+            st.error(f"視覺掃描發生錯誤，請稍後重試：{e}")
+            st.info("提示：AI 偶爾會回傳錯誤的座標格式，直接再按一次掃描按鈕即可。")
