@@ -1,5 +1,6 @@
 import os
-import json # 🌟 需要這個來存取紀錄檔
+import json
+import random # 🌟 需要這個來隨機抽鑰匙
 import streamlit as st
 import google.generativeai as genai
 import tempfile
@@ -7,20 +8,16 @@ import io
 import pypdfium2 as pdfium
 from docx import Document
 
-import random # 🌟 新增隨機抽籤套件
-
-# 👇 從保險箱中拿出所有的 API Keys
+# 👇 建立 API 鑰匙池
 api_keys = [
     st.secrets["GOOGLE_API_KEY_1"],
     st.secrets["GOOGLE_API_KEY_2"]
-    # 如果有第三把，就繼續加 GOOGLE_API_KEY_3...
+    # 如果未來有第三把，可以直接加 GOOGLE_API_KEY_3...
 ]
 
-# 🌟 每次重新整理網頁，系統就會隨機抽一把鑰匙來開門 (分散扣打)
+# 🌟 隨機抽一把鑰匙來開門 (分散扣打)
 selected_key = random.choice(api_keys)
 genai.configure(api_key=selected_key)
-
-# 🌟 確定使用最新、最聰明的 2.5 Flash 模型
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 if 'report_content' not in st.session_state:
@@ -28,7 +25,7 @@ if 'report_content' not in st.session_state:
 
 st.set_page_config(page_title="機車專利 PDF 戰情室", layout="wide")
 
-# 🌟 建立存放歷史報告的資料夾
+# 🌟 建立存放歷史報告的總資料夾
 SAVE_DIR = "saved_reports"
 if not os.path.exists(SAVE_DIR):
     os.makedirs(SAVE_DIR)
@@ -52,7 +49,7 @@ if not check_password():
     st.stop()
 # --- 門禁結束 ---
 
-st.title("🏍️ 機車專利 AI 戰略分析系統 (RD 視覺化旗艦版)")
+st.title("🏍️ 機車專利分析系統 ")
 st.markdown("支援 Google Patents 快速連線、十秒專利卡 (Patent Card) 生成，並可一鍵匯出 Word 戰略報告。")
 st.markdown("---")
 
@@ -88,10 +85,10 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
         st.warning("⚠️ 請選擇目前的案件狀態！")
     elif uploaded_file is None:
         st.warning("⚠️ 請上傳一份專利 PDF 檔案！")
-    elif not patent_num: # 🌟 防呆機制：必須輸入專利號才能存檔
+    elif not patent_num:
         st.warning("⚠️ 請輸入「專利號」，系統才能為您建立專屬記憶檔案！")
-   else:
-        # 🌟 1. 整理申請人名稱，作為分類資料夾名稱 (防呆：剔除特殊符號，如果沒填就歸類到 '未分類')
+    else:
+        # 🌟 1. 整理申請人名稱，作為分類資料夾名稱
         safe_applicant = "".join(c for c in applicant if c.isalnum() or c in (' ', '-', '_')).strip()
         folder_name = safe_applicant if safe_applicant else "未分類"
         
@@ -111,7 +108,6 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
                     saved_data = json.load(f)
                     st.session_state.report_content = saved_data.get("content", "")
                 st.success(f"⚡ 找到 {patent_num} 的歷史紀錄！已為您從【{folder_name}】分類中秒速載入，完全不消耗 API 額度。")
-     
         else:
             with st.spinner("大腦正在深挖先前技術與獨立項地雷，請稍候約 20 秒..."):
                 try:
@@ -143,12 +139,12 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
                     【三、 🏢 研發部門精準派發】：挑選接收部門並附理由。
                     【四、 🛑 先前技術與妥協分析 】：獨立項被迫增加了什麼限制？
                     【五、 🧩 獨立項全要件拆解 (Claim Chart)】：請將獨立項依要件原汁原味分段列出（絕對不需在每行加註解）。列出完畢後，統一在該區塊底部新增一個「🎯 侵權破口總結」，精準點出該獨立項中最容易被對手迴避的 1~2 個多餘限制即可。
-                    【六、 🪤 附屬項隱藏地雷探測】(嚴格)：請「逐一檢視」所有附屬項，全面挑出所有具有「具體結構形狀、相對位置、或工程參數限制」的附屬項（寧可多抓，絕對不要遺漏），並條列簡述其限制條件。
+                    【六、 🪤 附屬項隱藏地雷探測】：請「逐一檢視」所有附屬項，全面挑出所有具有「具體結構形狀、相對位置、或工程參數限制」的附屬項（寧可多抓，絕對不要遺漏），並條列簡述其限制條件。
                     【七、 👁️ 侵權可偵測性評估】：極易偵測 / 需破壞性拆解。
-                    【八、 🕵️‍♂️ 實證功效檢驗 (打假雷達)】：是否有實體數據？
+                    【八、 🕵️‍♂️ 實證功效檢驗 】：是否有實體數據？
                     【九、 🛡️ 高階迴避設計建議 (防範均等論)】：基於物理原理提出迴避方案。
                     【十、 🧬 技術演進與機構整併雷達】：是否將以往獨立的兩個元件整併？
-                    【十一、 🏷️ 元件符號圖面提取字典】(嚴格)：請務必以「垂直條列式（Bullet points）」列出所有元件符號，【絕對不要】加上英文翻譯。格式範例：
+                    【十一、 🏷️ 元件符號圖面提取字典】：請務必以「垂直條列式（Bullet points）」列出所有元件符號，【絕對不要】加上英文翻譯。格式範例：
                     * 1: 引擎
                     * 3: 汽缸頭組
                     '''
