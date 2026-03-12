@@ -9,7 +9,7 @@ from docx import Document
 # 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro-latest')
+model = genai.GenerativeModel('gemini-pro')
 
 if 'report_content' not in st.session_state:
     st.session_state.report_content = ""
