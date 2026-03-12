@@ -138,15 +138,16 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
                 st.error(f"分析失敗，請檢查網路連線或 API 狀態：{e}")
 
 if st.session_state.report_content:
-    col_pdf, col_report = st.columns([1, 1])
+    # 🌟 修改 1：把原本的 [1, 1] 改成 [1.2, 1]，給左邊多一點空間
+    col_pdf, col_report = st.columns([1.2, 1])
     
     with col_pdf:
         st.subheader("📄 專利原件 (左側獨立滾動)")
         if uploaded_file:
-            # 🌟 加入固定高度的容器，強迫產生獨立捲軸
             with st.container(height=800):
-                pdf_viewer(input=uploaded_file.getvalue(), width=700)
-
+                # 🌟 修改 2：把原本的 width=700 縮小成 550
+                pdf_viewer(input=uploaded_file.getvalue(), width=550)
+                
     with col_report:
         st.subheader("🧠 深度戰略分析報告")
         # ... (後面的下載按鈕與 markdown 都不變) ...
