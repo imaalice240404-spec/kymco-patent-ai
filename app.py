@@ -6,6 +6,7 @@ import base64
 import io
 from docx import Document
 
+from streamlit_pdf_viewer import pdf_viewer  # 🌟 新增：專屬 PDF 閱讀器
 # 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -62,10 +63,6 @@ with col_input2:
 
 st.markdown("---")
 
-def display_pdf_from_bytes(file_bytes):
-    base64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}#toolbar=1" width="100%" height="800" type="application/pdf"></iframe>'
-    st.markdown(pdf_display, unsafe_allow_html=True)
 
 def create_word_doc(text):
     doc = Document()
@@ -146,10 +143,12 @@ if st.session_state.report_content:
     with col_pdf:
         st.subheader("📄 專利原件 (左側獨立滾動)")
         if uploaded_file:
-            display_pdf_from_bytes(uploaded_file.getvalue())
+            # 🌟 換成全新的專屬 PDF 閱讀器，完美避開 Chrome 封鎖！
+            pdf_viewer(input=uploaded_file.getvalue(), width=700)
 
     with col_report:
         st.subheader("🧠 深度戰略分析報告")
+        # ... (後面的下載按鈕與 markdown 都不變) ...
         
         word_file = create_word_doc(st.session_state.report_content)
         st.download_button(
