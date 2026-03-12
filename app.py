@@ -1,20 +1,37 @@
+import os
+import json # 🌟 需要這個來存取紀錄檔
 import streamlit as st
 import google.generativeai as genai
-import os
 import tempfile
 import io
 import pypdfium2 as pdfium
 from docx import Document
 
-# 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
-GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-genai.configure(api_key=GOOGLE_API_KEY)
+import random # 🌟 新增隨機抽籤套件
+
+# 👇 從保險箱中拿出所有的 API Keys
+api_keys = [
+    st.secrets["GOOGLE_API_KEY_1"],
+    st.secrets["GOOGLE_API_KEY_2"]
+    # 如果有第三把，就繼續加 GOOGLE_API_KEY_3...
+]
+
+# 🌟 每次重新整理網頁，系統就會隨機抽一把鑰匙來開門 (分散扣打)
+selected_key = random.choice(api_keys)
+genai.configure(api_key=selected_key)
+
+# 🌟 確定使用最新、最聰明的 2.5 Flash 模型
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 if 'report_content' not in st.session_state:
     st.session_state.report_content = ""
 
 st.set_page_config(page_title="機車專利 PDF 戰情室", layout="wide")
+
+# 🌟 建立存放歷史報告的資料夾
+SAVE_DIR = "saved_reports"
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR)
 
 # --- 簡易密碼門禁 ---
 def check_password():
@@ -71,54 +88,83 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
         st.warning("⚠️ 請選擇目前的案件狀態！")
     elif uploaded_file is None:
         st.warning("⚠️ 請上傳一份專利 PDF 檔案！")
-    else:
-        with st.spinner("大腦正在深挖先前技術與獨立項地雷，請稍候約 20 秒..."):
-            try:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                    tmp_file.write(uploaded_file.getvalue())
-                    tmp_file_path = tmp_file.name
+    elif not patent_num: # 🌟 防呆機制：必須輸入專利號才能存檔
+        st.warning("⚠️ 請輸入「專利號」，系統才能為您建立專屬記憶檔案！")
+   else:
+        # 🌟 1. 整理申請人名稱，作為分類資料夾名稱 (防呆：剔除特殊符號，如果沒填就歸類到 '未分類')
+        safe_applicant = "".join(c for c in applicant if c.isalnum() or c in (' ', '-', '_')).strip()
+        folder_name = safe_applicant if safe_applicant else "未分類"
+        
+        # 🌟 2. 建立對手專屬的資料夾 (例如: saved_reports/光陽工業)
+        applicant_dir = os.path.join(SAVE_DIR, folder_name)
+        if not os.path.exists(applicant_dir):
+            os.makedirs(applicant_dir)
 
-                gemini_file = genai.upload_file(tmp_file_path)
+        # 🌟 3. 整理專利號，作為存檔的檔名
+        clean_num = ''.join(e for e in patent_num if e.isalnum())
+        file_path = os.path.join(applicant_dir, f"{clean_num}.json")
 
-                prompt = f'''
-                【⚠️ 語氣與術語強制校準】：你現在是一位資深機車專利代理人與研發主管。請使用機車研發黑話。
-                我已經提供了一份機車相關的專利 PDF 檔案，請仔細閱讀全文。
-                【補充資訊】申請人：{applicant} / 目前法律狀態：{status}
+        # 🌟 攔截點：檢查是否已經分析過？
+        if os.path.exists(file_path):
+            with st.spinner(f"正在從【{folder_name}】的記憶庫中讀取歷史大腦記憶..."):
+                with open(file_path, "r", encoding="utf-8") as f:
+                    saved_data = json.load(f)
+                    st.session_state.report_content = saved_data.get("content", "")
+                st.success(f"⚡ 找到 {patent_num} 的歷史紀錄！已為您從【{folder_name}】分類中秒速載入，完全不消耗 API 額度。")
+     
+        else:
+            with st.spinner("大腦正在深挖先前技術與獨立項地雷，請稍候約 20 秒..."):
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                        tmp_file.write(uploaded_file.getvalue())
+                        tmp_file_path = tmp_file.name
 
-                【📝 輸出格式要求】請嚴格依序輸出以下兩個大區塊：
-                ====================
-                區塊一：【🚀 RD 專屬十秒專利卡 (Patent Card)】
-                * **📝 Title (技術命名)**：(用一句話總結這項技術)
-                * **🔥 Problem (解決痛點)**：(原本的設計有什麼缺點)
-                * **💡 Solution (核心解法)**：(本專利用了什麼特殊結構解決)
-                * **🏷️ Key Elements (關鍵字標籤)**：(請提取 3~5 個核心元件的中文關鍵字)
-                * **🎯 Application (應用場景)**：(例如：速克達、重機)
-                * **⚔️ 侵權風險視覺化 (自家技術對比清單)**：請列成 3 項 Checklist (使用 ✔ 符號)。
+                    gemini_file = genai.upload_file(tmp_file_path)
 
-                ====================
-                區塊二：【📜 智權與法務深度戰略分析】
-                【一、 🚦 FTO 風險判定】：判定『🟢 綠燈：已失效』或『🔴 紅燈：具威脅』。
-                【二、 📸 技術核心快照】：1.發明目的 2.核心技術 3.宣稱功效。
-                【三、 🏢 研發部門精準派發】：挑選接收部門並附理由。
-                【四、 🛑 先前技術與妥協分析 】：獨立項被迫增加了什麼限制？
-                【五、 🧩 獨立項全要件拆解 (Claim Chart)】：請將獨立項依要件原汁原味分段列出（絕對不需在每行加註解）。列出完畢後，統一在該區塊底部新增一個「🎯 侵權破口總結」，精準點出該獨立項中最容易被對手迴避的 1~2 個多餘限制即可。
-                【六、 🪤 附屬項隱藏地雷探測】(嚴格)：請「逐一檢視」所有附屬項，全面挑出所有具有「具體結構形狀、相對位置、或工程參數限制」的附屬項（寧可多抓，絕對不要遺漏），並條列簡述其限制條件。
-                【七、 👁️ 侵權可偵測性評估】：極易偵測 / 需破壞性拆解。
-                【八、 🕵️‍♂️ 實證功效檢驗 (打假雷達)】：是否有實體數據？
-                【九、 🛡️ 高階迴避設計建議 (防範均等論)】：基於物理原理提出迴避方案。
-                【十、 🧬 技術演進與機構整併雷達】：是否將以往獨立的兩個元件整併？
-                【十一、 🏷️ 元件符號圖面提取字典】(嚴格)：請務必以「垂直條列式（Bullet points）」列出所有元件符號，【絕對不要】加上英文翻譯。格式範例：
-* 1: 引擎
-* 3: 汽缸頭組
-                '''
-                
-                response = model.generate_content([gemini_file, prompt])
-                st.session_state.report_content = response.text
+                    prompt = f'''
+                    【⚠️ 語氣與術語強制校準】：你現在是一位資深機車專利代理人與研發主管。請使用機車研發黑話。
+                    我已經提供了一份機車相關的專利 PDF 檔案，請仔細閱讀全文。
+                    【補充資訊】申請人：{applicant} / 目前法律狀態：{status}
 
-                os.remove(tmp_file_path)
-                genai.delete_file(gemini_file.name)
-            except Exception as e:
-                st.error(f"分析失敗：{e}")
+                    【📝 輸出格式要求】請嚴格依序輸出以下兩個大區塊：
+                    ====================
+                    區塊一：【🚀 RD 專屬十秒專利卡 (Patent Card)】
+                    * **📝 Title (技術命名)**：(用一句話總結這項技術)
+                    * **🔥 Problem (解決痛點)**：(原本的設計有什麼缺點)
+                    * **💡 Solution (核心解法)**：(本專利用了什麼特殊結構解決)
+                    * **🏷️ Key Elements (關鍵字標籤)**：(請提取 3~5 個核心元件的中文關鍵字)
+                    * **🎯 Application (應用場景)**：(例如：速克達、重機)
+                    * **⚔️ 侵權風險視覺化 (自家技術對比清單)**：請列成 3 項 Checklist (使用 ✔ 符號)。
+
+                    ====================
+                    區塊二：【📜 智權與法務深度戰略分析】
+                    【一、 🚦 FTO 風險判定】：判定『🟢 綠燈：已失效』或『🔴 紅燈：具威脅』。
+                    【二、 📸 技術核心快照】：1.發明目的 2.核心技術 3.宣稱功效。
+                    【三、 🏢 研發部門精準派發】：挑選接收部門並附理由。
+                    【四、 🛑 先前技術與妥協分析 】：獨立項被迫增加了什麼限制？
+                    【五、 🧩 獨立項全要件拆解 (Claim Chart)】：請將獨立項依要件原汁原味分段列出（絕對不需在每行加註解）。列出完畢後，統一在該區塊底部新增一個「🎯 侵權破口總結」，精準點出該獨立項中最容易被對手迴避的 1~2 個多餘限制即可。
+                    【六、 🪤 附屬項隱藏地雷探測】(嚴格)：請「逐一檢視」所有附屬項，全面挑出所有具有「具體結構形狀、相對位置、或工程參數限制」的附屬項（寧可多抓，絕對不要遺漏），並條列簡述其限制條件。
+                    【七、 👁️ 侵權可偵測性評估】：極易偵測 / 需破壞性拆解。
+                    【八、 🕵️‍♂️ 實證功效檢驗 (打假雷達)】：是否有實體數據？
+                    【九、 🛡️ 高階迴避設計建議 (防範均等論)】：基於物理原理提出迴避方案。
+                    【十、 🧬 技術演進與機構整併雷達】：是否將以往獨立的兩個元件整併？
+                    【十一、 🏷️ 元件符號圖面提取字典】(嚴格)：請務必以「垂直條列式（Bullet points）」列出所有元件符號，【絕對不要】加上英文翻譯。格式範例：
+                    * 1: 引擎
+                    * 3: 汽缸頭組
+                    '''
+                    
+                    response = model.generate_content([gemini_file, prompt])
+                    st.session_state.report_content = response.text
+
+                    # 🌟 將成功產出的結果存檔進 JSON
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        json.dump({"content": st.session_state.report_content}, f, ensure_ascii=False)
+                    st.success("✅ 分析完成，並已自動將報告存入系統記憶庫！")
+
+                    os.remove(tmp_file_path)
+                    genai.delete_file(gemini_file.name)
+                except Exception as e:
+                    st.error(f"分析失敗：{e}")
 
 # ==========================================
 # 顯示報告與純淨版影像 PDF 區塊
