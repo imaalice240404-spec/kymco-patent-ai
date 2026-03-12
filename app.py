@@ -1,6 +1,6 @@
 import os
 import json
-import random # 🌟 需要這個來隨機抽鑰匙
+import random 
 import streamlit as st
 import google.generativeai as genai
 import tempfile
@@ -12,10 +12,9 @@ from docx import Document
 api_keys = [
     st.secrets["GOOGLE_API_KEY_1"],
     st.secrets["GOOGLE_API_KEY_2"]
-    # 如果未來有第三把，可以直接加 GOOGLE_API_KEY_3...
 ]
 
-# 🌟 隨機抽一把鑰匙來開門 (分散扣打)
+# 🌟 隨機抽一把鑰匙來開門
 selected_key = random.choice(api_keys)
 genai.configure(api_key=selected_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
@@ -49,7 +48,7 @@ if not check_password():
     st.stop()
 # --- 門禁結束 ---
 
-st.title("🏍️ 機車專利分析系統 ")
+st.title("🏍️ 機車專利 AI 戰略分析系統 (RD 視覺化旗艦版)")
 st.markdown("支援 Google Patents 快速連線、十秒專利卡 (Patent Card) 生成，並可一鍵匯出 Word 戰略報告。")
 st.markdown("---")
 
@@ -88,16 +87,14 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
     elif not patent_num:
         st.warning("⚠️ 請輸入「專利號」，系統才能為您建立專屬記憶檔案！")
     else:
-        # 🌟 1. 整理申請人名稱，作為分類資料夾名稱
+        # 🌟 整理申請人名稱與建立資料夾
         safe_applicant = "".join(c for c in applicant if c.isalnum() or c in (' ', '-', '_')).strip()
         folder_name = safe_applicant if safe_applicant else "未分類"
-        
-        # 🌟 2. 建立對手專屬的資料夾 (例如: saved_reports/光陽工業)
         applicant_dir = os.path.join(SAVE_DIR, folder_name)
         if not os.path.exists(applicant_dir):
             os.makedirs(applicant_dir)
 
-        # 🌟 3. 整理專利號，作為存檔的檔名
+        # 🌟 整理專利號與存檔路徑
         clean_num = ''.join(e for e in patent_num if e.isalnum())
         file_path = os.path.join(applicant_dir, f"{clean_num}.json")
 
@@ -117,7 +114,8 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
 
                     gemini_file = genai.upload_file(tmp_file_path)
 
-                  prompt = f'''
+                    # 🌟 完美對齊的骨架 Prompt
+                    prompt = f'''
                     【⚠️ 語氣與術語強制校準】：你現在是一位資深機車專利代理人與研發主管。請使用機車研發黑話。
                     我已經提供了一份機車相關的專利 PDF 檔案，請仔細閱讀全文。
                     【補充資訊】申請人：{applicant} / 目前法律狀態：{status}
