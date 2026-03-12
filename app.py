@@ -1,15 +1,15 @@
 import streamlit as st
 import google.generativeai as genai
-import tempfile
 import os
+import tempfile
 import base64
+import json
 import io
-from docx import Document
-
-from streamlit_pdf_viewer import pdf_viewer  # 🌟 新增：專屬 PDF 閱讀器
 import pypdfium2 as pdfium
 from PIL import Image, ImageDraw
-import json
+from docx import Document
+import streamlit.components.v1 as components
+
 # 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
@@ -42,8 +42,7 @@ if not check_password():
     st.stop() # 密碼錯誤就停止執行後面的程式碼
 # --- 門禁結束 ---
 
-
-st.title("🏍️ 機車專利 AI 戰略分析系統 (RD 視覺化旗艦版)")
+st.title("🏍️ 機車專利分析系統 ")
 st.markdown("支援 Google Patents 快速連線、十秒專利卡 (Patent Card) 生成，並可一鍵匯出 Word 戰略報告。")
 st.markdown("---")
 
@@ -65,7 +64,6 @@ with col_input2:
     uploaded_file = st.file_uploader("請拖曳或選擇專利 PDF 檔", type=["pdf"])
 
 st.markdown("---")
-
 
 def create_word_doc(text):
     doc = Document()
@@ -91,7 +89,7 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
 
                 gemini_file = genai.upload_file(tmp_file_path)
 
-                # 🌟 雙大腦混合版 + RD 專屬 Patent Card 終極 Prompt
+                # 🌟 保留您專屬的雙大腦混合版 Prompt
                 prompt = f'''
                 【⚠️ 語氣與術語強制校準】：你現在是一位資深機車專利代理人與研發主管。請使用機車研發黑話（如：搖臂、動力單元、導流罩）。
 
@@ -140,20 +138,31 @@ if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
             except Exception as e:
                 st.error(f"分析失敗，請檢查網路連線或 API 狀態：{e}")
 
+# ==========================================
+# 顯示報告與 PDF 區塊
+# ==========================================
 if st.session_state.report_content:
-    # 🌟 修改 1：把原本的 [1, 1] 改成 [1.2, 1]，給左邊多一點空間
     col_pdf, col_report = st.columns([1.2, 1])
     
     with col_pdf:
-        st.subheader("📄 專利原件 (左側獨立滾動)")
+        st.subheader("📄 專利原件 (原生清晰畫質)")
         if uploaded_file:
-            with st.container(height=800):
-                # 🌟 修改 2：把原本的 width=700 縮小成 550
-                pdf_viewer(input=uploaded_file.getvalue(), width=550)
+            base64_pdf = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+            pdf_display = f"""
+                <object 
+                    data="data:application/pdf;base64,{base64_pdf}" 
+                    type="application/pdf" 
+                    width="100%" 
+                    height="800px"
+                    style="border: 1px solid #ccc;"
+                >
+                    <p>您的瀏覽器不支援嵌入 PDF，<a href="data:application/pdf;base64,{base64_pdf}" download="patent.pdf">點此下載</a>查看。</p>
+                </object>
+            """
+            components.html(pdf_display, height=820)
 
     with col_report:
         st.subheader("🧠 深度戰略分析報告")
-        # ... (後面的下載按鈕與 markdown 都不變) ...
         
         word_file = create_word_doc(st.session_state.report_content)
         st.download_button(
@@ -167,78 +176,96 @@ if st.session_state.report_content:
         report_container = st.container(height=800)
         with report_container:
             st.markdown(st.session_state.report_content)
-            st.markdown("---")
-st.subheader("🖼️ 代表圖鷹眼自動標註 (高畫質 AI 視覺)")
 
-if st.button("👁️ 啟動圖面鷹眼掃描", use_container_width=True):
-    with st.spinner("正在將專利代表圖轉換為超高解析度影像，並請 AI 尋找關鍵字座標..."):
-        try:
-            # 1. 抓取 PDF 第一頁並轉為 3 倍高畫質圖片 (解決畫質模糊痛點！)
-            pdf = pdfium.PdfDocument(uploaded_file.getvalue())
-            page = pdf[0] 
-            bitmap = page.render(scale=3.0) 
-            pil_image = bitmap.to_pil()
-            pdf.close()
+# ==========================================
+# 鷹眼掃描區塊
+# ==========================================
+    st.markdown("---")
+    st.subheader("🖼️ 代表圖鷹眼自動標註 (高畫質 AI 視覺)")
 
-            # 2. 存成暫存檔給 Gemini 看
-            import tempfile, os
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as img_tmp:
-                pil_image.save(img_tmp.name, format="JPEG")
-                img_path = img_tmp.name
+    col_config_1, col_config_2 = st.columns([1, 1])
+    with col_config_1:
+        target_page_num = st.number_input(
+            "📄 指定代表圖出現在 PDF 第幾頁？", 
+            min_value=1, 
+            value=2,  # 預設改為第 2 頁，較符合實務
+            help="請查看左側 PDF 原件，確認真正的代表圖出現在第幾頁。"
+        )
 
-            vision_file = genai.upload_file(img_path)
+    with col_config_2:
+        st.write("") # 為了排版對齊
+        scan_btn = st.button("👁️ 啟動圖面鷹眼掃描", use_container_width=True)
 
-            # 3. 呼叫 Gemini Vision 算出 AutoCAD 等級的相對座標
-            vision_prompt = """
-            你是一個專業的專利圖面分析系統。請檢視這張機車專利工程圖。
-            請找出圖面中最重要的 3 個帶有數字標號的機車元件（例如：水泵、凸輪軸、汽缸頭等）。
-            請以 JSON 格式回傳，格式如下：
-            [
-              {"name": "元件中文名稱與標號", "box": [ymin, xmin, ymax, xmax]}
-            ]
-            注意：box 座標必須是介於 0 到 1000 之間的整數，代表在圖片上的相對百分比位置。
-            """
-            vision_response = model.generate_content([vision_file, vision_prompt])
-            
-            # 清理 JSON 格式
-            response_text = vision_response.text.replace('```json', '').replace('```', '').strip()
-            bounding_boxes = json.loads(response_text)
+    if scan_btn and uploaded_file is None:
+        st.error("請先在上方上傳 PDF 文件！")
 
-            # 4. 在圖片上精準畫出紅色追蹤框
-            draw = ImageDraw.Draw(pil_image)
-            img_width, img_height = pil_image.size
-            
-            for i, item in enumerate(bounding_boxes):
-                ymin, xmin, ymax, xmax = item["box"]
+    if scan_btn and uploaded_file is not None:
+        with st.spinner(f"正在將 PDF 第 {target_page_num} 頁轉換為超高解析度影像，並請 AI 尋找關鍵字座標..."):
+            try:
+                pdf = pdfium.PdfDocument(uploaded_file.getvalue())
+                total_pages = len(pdf)
                 
-                # 將 0-1000 的比例還原回真實的高畫質像素座標
-                abs_xmin = int((xmin / 1000) * img_width)
-                abs_ymin = int((ymin / 1000) * img_height)
-                abs_xmax = int((xmax / 1000) * img_width)
-                abs_ymax = int((ymax / 1000) * img_height)
-                
-                # 畫紅色粗框
-                draw.rectangle([abs_xmin, abs_ymin, abs_xmax, abs_ymax], outline="red", width=8)
-                # 畫個實心紅底方塊放數字 (避免中文在圖片上亂碼，我們用數字代號)
-                draw.rectangle([abs_xmin, abs_ymin-40, abs_xmin+40, abs_ymin], fill="red")
-                # 寫上白色的編號
-                draw.text((abs_xmin+12, abs_ymin-32), str(i+1), fill="white", align="center")
-            
-            # 5. 顯示超清晰圖片與對照表
-            col_img, col_list = st.columns([2, 1])
-            with col_img:
-                # 這張圖片可以點擊放大，畫質絕對讓您滿意！
-                st.image(pil_image, caption="AI 鷹眼鎖定：關鍵技術特徵", use_container_width=True)
-            
-            with col_list:
-                st.success("✅ 鷹眼鎖定完成！")
-                st.markdown("### 🎯 標記對照表")
-                for i, item in enumerate(bounding_boxes):
-                    st.markdown(f"**🔴 標記 {i+1}：** {item['name']}")
+                if target_page_num > total_pages:
+                    st.error(f"錯誤：此 PDF 只有 {total_pages} 頁，您指定的第 {target_page_num} 頁不存在。")
+                    pdf.close()
+                else:
+                    # 抓圖
+                    target_page_index = target_page_num - 1
+                    page = pdf[target_page_index] 
+                    bitmap = page.render(scale=3.0) 
+                    pil_image = bitmap.to_pil()
+                    pdf.close()
 
-            os.remove(img_path)
-            genai.delete_file(vision_file.name)
+                    # 存檔與 API 呼叫
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as img_tmp:
+                        pil_image.save(img_tmp.name, format="JPEG")
+                        img_path = img_tmp.name
 
-        except Exception as e:
-            st.error(f"視覺掃描發生錯誤，請稍後重試：{e}")
-            st.info("提示：AI 偶爾會回傳錯誤的座標格式，直接再按一次掃描按鈕即可。")
+                    vision_file = genai.upload_file(img_path)
+                    
+                    vision_prompt = """
+                    你是一個專業的專利圖面分析系統。請檢視這張機車專利工程圖。
+                    請找出圖面中最重要的 3 個帶有數字標號的機車元件。
+                    請以 JSON 格式回傳，格式如下：
+                    [
+                      {"name": "元件中文名稱與標號", "box": [ymin, xmin, ymax, xmax]}
+                    ]
+                    注意：box 座標必須是介於 0 到 1000 之間的整數，代表在圖片上的相對百分比位置。
+                    """
+                    vision_response = model.generate_content([vision_file, vision_prompt])
+                    
+                    # 畫框邏輯
+                    response_text = vision_response.text.replace('```json', '').replace('```', '').strip()
+                    bounding_boxes = json.loads(response_text)
+
+                    draw = ImageDraw.Draw(pil_image)
+                    img_width, img_height = pil_image.size
+                    
+                    for i, item in enumerate(bounding_boxes):
+                        ymin, xmin, ymax, xmax = item["box"]
+                        abs_xmin = int((xmin / 1000) * img_width)
+                        abs_ymin = int((ymin / 1000) * img_height)
+                        abs_xmax = int((xmax / 1000) * img_width)
+                        abs_ymax = int((ymax / 1000) * img_height)
+                        
+                        draw.rectangle([abs_xmin, abs_ymin, abs_xmax, abs_ymax], outline="red", width=8)
+                        draw.rectangle([abs_xmin, abs_ymin-40, abs_xmin+40, abs_ymin], fill="red")
+                        draw.text((abs_xmin+12, abs_ymin-32), str(i+1), fill="white")
+                    
+                    # 顯示結果
+                    col_img, col_list = st.columns([2, 1])
+                    with col_img:
+                        st.image(pil_image, caption=f"AI 鷹眼鎖定 (PDF 第 {target_page_num} 頁)", use_container_width=True)
+                    
+                    with col_list:
+                        st.success("✅ 鷹眼鎖定完成！")
+                        st.markdown("### 🎯 標記對照表")
+                        for i, item in enumerate(bounding_boxes):
+                            st.markdown(f"**🔴 標記 {i+1}：** {item['name']}")
+
+                    os.remove(img_path)
+                    genai.delete_file(vision_file.name)
+
+            except Exception as e:
+                st.error(f"視覺掃描發生錯誤，請稍後重試：{e}")
+                st.info("提示：AI 偶爾會回傳錯誤的座標格式，直接再按一次掃描按鈕即可。")

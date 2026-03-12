@@ -1,13 +1,5 @@
 streamlit
 google-generativeai
 python-docx
-streamlit
-google-generativeai
-python-docx
-streamlit-pdf-viewer
-streamlit
-google-generativeai
-python-docx
-streamlit-pdf-viewer
 pypdfium2
 Pillow
