@@ -2,17 +2,13 @@ import streamlit as st
 import google.generativeai as genai
 import os
 import tempfile
-import base64
-import json
 import io
 import pypdfium2 as pdfium
-from PIL import Image, ImageDraw
 from docx import Document
 
 # 👇 從 Streamlit 本機或雲端的保險箱中讀取 API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 genai.configure(api_key=GOOGLE_API_KEY)
-# 升級使用最新的 Gemini 模型以提升視覺辨識力
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 if 'report_content' not in st.session_state:
@@ -132,12 +128,10 @@ if st.session_state.report_content:
         st.subheader("📄 專利原件 (純淨影像版 - 絕對防封鎖)")
         if uploaded_file:
             with st.container(height=800):
-                with st.spinner("正在將 PDF 轉換為超清晰圖片..."):
-                    # 🌟 降維打擊：將 PDF 轉成圖片直接貼上，無畏任何瀏覽器封鎖！
+                with st.spinner("正在加載高畫質圖檔..."):
                     pdf_doc = pdfium.PdfDocument(uploaded_file.getvalue())
                     for i in range(len(pdf_doc)):
                         page = pdf_doc[i]
-                        # scale=1.5 提供良好的閱讀畫質且不會拖垮系統
                         img = page.render(scale=1.5).to_pil()
                         st.image(img, caption=f"第 {i+1} 頁", use_container_width=True)
                     pdf_doc.close()
@@ -147,93 +141,10 @@ if st.session_state.report_content:
         word_file = create_word_doc(st.session_state.report_content)
         st.download_button(
             label="📥 一鍵下載分析報告 (Word 格式)",
-            data=word_file, file_name=f"Patent_Report.docx",
+            data=word_file, file_name=f"Patent_Report_{patent_num if patent_num else 'Result'}.docx",
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             use_container_width=True
         )
         report_container = st.container(height=800)
         with report_container:
             st.markdown(st.session_state.report_content)
-
-# ==========================================
-# 鷹眼掃描區塊 (狙擊手升級版)
-# ==========================================
-    st.markdown("---")
-    st.subheader("🎯 鷹眼自動標註 (指定狙擊模式)")
-
-    # 🌟 新增：讓您可以手動輸入要尋找的「特定元件」
-    col_config_1, col_config_2, col_config_3 = st.columns([1, 1.5, 1])
-    with col_config_1:
-        target_page_num = st.number_input("📄 選擇代表圖頁碼", min_value=1, value=2)
-    with col_config_2:
-        target_component = st.text_input("🎯 輸入想狙擊的元件 (例如)", value="水泵 或 水泵組件")
-    with col_config_3:
-        st.write("") 
-        scan_btn = st.button("👁️ 啟動鷹眼狙擊", use_container_width=True)
-
-    if scan_btn and uploaded_file is not None:
-        with st.spinner(f"正在鎖定 第 {target_page_num} 頁的「{target_component}」..."):
-            try:
-                pdf = pdfium.PdfDocument(uploaded_file.getvalue())
-                if target_page_num > len(pdf):
-                    st.error(f"頁數錯誤！此 PDF 只有 {len(pdf)} 頁。")
-                    pdf.close()
-                else:
-                    page = pdf[target_page_num - 1] 
-                    bitmap = page.render(scale=3.0) 
-                    pil_image = bitmap.to_pil()
-                    pdf.close()
-
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as img_tmp:
-                        pil_image.save(img_tmp.name, format="JPEG")
-                        img_path = img_tmp.name
-
-                    vision_file = genai.upload_file(img_path)
-                    
-                    # 🌟 狙擊專用 Prompt：強迫 AI 只看您指定的元件，並盡量框選標號
-                    vision_prompt = f"""
-                    你是一個精準的專利圖面定位 AI。
-                    使用者的目標是尋找：「{target_component}」。
-                    請在這張圖面中，找出與「{target_component}」最相關的 1 到 2 個局部特徵或數字標號。
-                    請以 JSON 格式回傳，格式如下：
-                    [
-                      {{"name": "特徵或標號說明", "box": [ymin, xmin, ymax, xmax]}}
-                    ]
-                    注意：
-                    1. box 座標為 0 到 1000 的整數百分比。
-                    2. 請盡量「縮小範圍」，精準框選該元件本身或其數字標號的所在位置，絕對不要框選整個引擎或大面積不相關的區域。
-                    """
-                    vision_response = model.generate_content([vision_file, vision_prompt])
-                    
-                    response_text = vision_response.text.replace('```json', '').replace('```', '').strip()
-                    bounding_boxes = json.loads(response_text)
-
-                    draw = ImageDraw.Draw(pil_image)
-                    img_width, img_height = pil_image.size
-                    
-                    for i, item in enumerate(bounding_boxes):
-                        ymin, xmin, ymax, xmax = item["box"]
-                        abs_xmin = int((xmin / 1000) * img_width)
-                        abs_ymin = int((ymin / 1000) * img_height)
-                        abs_xmax = int((xmax / 1000) * img_width)
-                        abs_ymax = int((ymax / 1000) * img_height)
-                        
-                        # 改用半透明或細一點的框，讓視覺焦點更精確
-                        draw.rectangle([abs_xmin, abs_ymin, abs_xmax, abs_ymax], outline="#00FF00", width=6)
-                        draw.rectangle([abs_xmin, abs_ymin-35, abs_xmin+40, abs_ymin], fill="#00FF00")
-                        draw.text((abs_xmin+10, abs_ymin-25), f"Target {i+1}", fill="black")
-                    
-                    col_img, col_list = st.columns([2, 1])
-                    with col_img:
-                        st.image(pil_image, caption=f"鷹眼狙擊目標：{target_component}", use_container_width=True)
-                    
-                    with col_list:
-                        st.success(f"✅ 狙擊完成！尋找目標：{target_component}")
-                        for i, item in enumerate(bounding_boxes):
-                            st.markdown(f"**🎯 命中點 {i+1}：** {item['name']}")
-
-                    os.remove(img_path)
-                    genai.delete_file(vision_file.name)
-
-            except Exception as e:
-                st.error("AI 尋找特定特徵時發生偏移，請嘗試更換目標名稱（例如加上數字標號），並再試一次！")
