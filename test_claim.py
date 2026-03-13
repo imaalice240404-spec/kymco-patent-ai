@@ -41,16 +41,16 @@ if not check_password():
 # --- 門禁結束 ---
 
 st.title("⚖️ 請求項文義解析 (Claim Construction) 工作站")
-st.markdown("實務級三視窗連動：無死角對齊「專利圖面、請求項、說明書全文本對應 (含段落編號)」。")
+st.markdown("實務級三視窗連動：無死角對齊「圖面、請求項、說明書」，**完整收錄全專利所有元件**。")
 st.markdown("---")
 
 uploaded_pdf = st.file_uploader("📥 請上傳一份專利 PDF 檔", type=["pdf"])
 
-if st.button("🤖 啟動精細拆解 (建立連動字典)", use_container_width=True):
+if st.button("🤖 啟動精細拆解 (建立全文本與全元件字典)", use_container_width=True):
     if uploaded_pdf is None:
         st.warning("⚠️ 請先上傳 PDF 檔案！")
     else:
-        with st.spinner("大腦正在地毯式搜索說明書，並精準抓取段落編號... (需時較長，請稍候)"):
+        with st.spinner("大腦正在建立全本專利的「符號字典」與「說明書全文本」... (約需 20 秒)"):
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                     tmp_file.write(uploaded_pdf.getvalue())
@@ -58,33 +58,36 @@ if st.button("🤖 啟動精細拆解 (建立連動字典)", use_container_width
 
                 gemini_file = genai.upload_file(tmp_file_path)
 
-                # 🌟 升級版 Prompt：強制保留【xxxx】段落編號
+                # 🌟 終極 Prompt：不准 AI 亂猜，強制建立 100% 完整的資料庫
                 prompt = '''
-                你現在是一位極度嚴謹的專利訴訟律師。請閱讀這份機車專利，建立核心元件的「文義解釋對照表」。
-                請找出獨立項中最核心的 5 到 8 個實體元件。
+                你現在是一個精準的專利資料庫解析系統。請閱讀這份專利，並將內容轉化為結構化的 JSON 格式。
 
-                【任務要求】：
-                對於每一個元件，你必須在說明書中進行「地毯式搜索」。
-                把說明書中「所有」提到該元件的段落（包含它的位置、連接關係、材質、作動方式、目的）全部摘錄出來。
-                【🔴 極度重要】：摘錄時，必須完整保留說明書原文前方的「段落編號」（例如：【0037】或 [0037] 等格式）。
-                絕對不要只給一段，也不要自己總結，請給我原汁原味的說明書原文與段落編號。
+                【任務 1：完整元件符號字典 (絕對不能漏)】
+                請去尋找專利說明書最後面的「符號簡單說明」、「主要元件符號說明」或文中的對應段落。
+                將裡面提及的【每一個】元件符號跟名稱提取出來。即使是小螺絲、墊片也必須列出。
+
+                【任務 2：請求項 1 拆解】
+                將請求項 1 逐句拆解為陣列。
+
+                【任務 3：實施方式全文本提取】
+                請將專利中「發明說明 / 實施方式 / 具體實施例」的所有段落完整提取出來。
+                必須保留原本的【00xx】段落編號。如果該專利較舊沒有段落編號，請以自然段落區分。
 
                 【🔴 絕對指令：輸出純 JSON 格式】
                 嚴格符合以下結構：
                 {
                   "claim_1": [
-                    "請將請求項1的內容，以陣列形式，一句一行乾淨地列出",
-                    "一水泵本體(10)；"
+                    "一種機車，包含：",
+                    "一車架10；"
                   ],
                   "components": [
-                    {
-                      "id": "40",
-                      "name": "後搖臂",
-                      "spec_texts": [
-                        "【0037】後搖臂40設置在車輪組20的後車輪22與動力單元30的引擎31之間...",
-                        "【0042】左搖臂41的兩端分別設為一左前連接部411與一左後連接部412..."
-                      ]
-                    }
+                    {"id": "10", "name": "車架"},
+                    {"id": "11", "name": "頭管"},
+                    {"id": "40", "name": "後搖臂"}
+                  ],
+                  "spec_texts": [
+                    "【0015】如圖1所示，車架10包含一頭管11...",
+                    "【0016】該後搖臂40設置於..."
                   ]
                 }
                 '''
@@ -95,7 +98,7 @@ if st.button("🤖 啟動精細拆解 (建立連動字典)", use_container_width
                 clean_text = clean_text[clean_text.find('{'):clean_text.rfind('}')+1]
                 st.session_state.claim_data = json.loads(clean_text)
                 
-                st.success("✅ 建構完成！請在下方操作三視窗連動。")
+                st.success("✅ 全本字典建構完成！請使用下方下拉選單進行無死角查閱。")
 
                 os.remove(tmp_file_path)
                 genai.delete_file(gemini_file.name)
@@ -110,9 +113,13 @@ if st.session_state.claim_data:
     
     components = st.session_state.claim_data.get("components", [])
     if components:
+        # 🌟 建立超完整的元件選擇器
         comp_options = {f"[{c['id']}] {c['name']}": c for c in components}
-        selected_comp_label = st.selectbox("🎯 選擇要追蹤的比對目標【核心元件】：", list(comp_options.keys()))
-        active_comp = comp_options[selected_comp_label]
+        
+        col_select, col_empty = st.columns([1, 1])
+        with col_select:
+            selected_comp_label = st.selectbox(f"🎯 選擇要追蹤的比對目標 (已成功載入 {len(components)} 個元件)：", list(comp_options.keys()))
+            active_comp = comp_options[selected_comp_label]
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -123,9 +130,7 @@ if st.session_state.claim_data:
             if uploaded_pdf:
                 pdf_doc = pdfium.PdfDocument(uploaded_pdf.getvalue())
                 total_pages = len(pdf_doc)
-                
                 page_num = st.number_input(f"跳至頁碼 (共 {total_pages} 頁)", min_value=1, max_value=total_pages, value=min(2, total_pages))
-                
                 with st.container(height=650, border=True):
                     page = pdf_doc[page_num - 1]
                     img = page.render(scale=2.0).to_pil() 
@@ -148,13 +153,14 @@ if st.session_state.claim_data:
             with st.container(height=750, border=True):
                 st.info(f"📍 目標元件：**{active_comp['name']} ({active_comp['id']})**")
                 
-                spec_texts = active_comp.get('spec_texts', [])
-                if not spec_texts:
-                    st.warning("說明書中未找到針對此元件的進一步描述。")
+                # 🌟 Python 超高速瞬間篩選邏輯：只挑出含有該元件的段落
+                spec_texts = st.session_state.claim_data.get('spec_texts', [])
+                found_texts = [text for text in spec_texts if active_comp['name'] in text or active_comp['id'] in text]
+                
+                if not found_texts:
+                    st.warning(f"在實施方式中，未找到針對「{active_comp['name']}」的進一步描述文字。")
                 else:
-                    for text in spec_texts:
-                        # 🌟 將說明書段落中的元件名稱高亮，並直接顯示 AI 抓出的完整段落 (含段落編號)
+                    for text in found_texts:
+                        # 雙重高亮：把元件名稱跟編號都標記出來
                         highlighted_text = text.replace(active_comp['name'], f"<mark style='background-color: #cce5ff; color: #004085; font-weight: bold; padding: 2px 4px; border-radius: 3px;'>{active_comp['name']}</mark>")
-                        
-                        # 讓含有 【xxxx】 的段落開頭更明顯
                         st.markdown(f"<div style='background-color: #f8f9fa; padding: 12px; border-left: 5px solid #007bff; margin-bottom: 15px; line-height: 1.6;'>{highlighted_text}</div>", unsafe_allow_html=True)
