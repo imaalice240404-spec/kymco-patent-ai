@@ -26,9 +26,9 @@ if 'report_content' not in st.session_state:
 if 'ai_analysis_result' not in st.session_state:
     st.session_state.ai_analysis_result = None
 if 'rd_database' not in st.session_state:
-    st.session_state.rd_database = [] # Tab 3: 失效研發庫
+    st.session_state.rd_database = [] 
 if 'comp_database' not in st.session_state:
-    st.session_state.comp_database = [] # 🌟 Tab 2: 競爭前案庫
+    st.session_state.comp_database = [] # Tab 2: 競爭前案庫
 
 st.set_page_config(page_title="機車專利大數據戰情室", layout="wide")
 
@@ -255,9 +255,9 @@ with main_tab2:
                 
             st.success(f"✅ 成功載入資料！共計 {len(df)} 筆專利。")
             
-            # 🌟 新增 sub_tab7: 競爭前案快篩庫
-            sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5, sub_tab6, sub_tab7 = st.tabs([
-                "🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區", "🧠 AI 技術功效矩陣", "👑 核心地雷探勘", "🛍️ 產品防護牆", "🗄️ 競爭前案快篩庫"
+            # 🌟 重新排列 Tab 2 子頁籤：快篩庫移到地雷探勘前面，移除產品防護牆
+            sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5, sub_tab6 = st.tabs([
+                "🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區", "🧠 AI 技術功效矩陣", "🗄️ 競爭前案快篩庫", "👑 核心地雷探勘"
             ])
             
             applicant_col = next((col for col in df.columns if '申請人' in col), None)
@@ -297,15 +297,12 @@ with main_tab2:
                     fig3.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig3, use_container_width=True)
 
-            # --------------------------
-            # AI 核心分析區塊 (矩陣 + 產品對應)
-            # --------------------------
             with sub_tab4:
                 st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
                 if abstract_col and title_col and patent_num_col:
-                    analyze_count = st.slider("選擇要投入 AI 分析的專利數量", min_value=1, max_value=min(len(df), 30), value=min(len(df), 15), key="slider_tab2")
-                    if st.button("🚀 啟動雙軌解析 (矩陣 + 產品防護網)", use_container_width=True):
-                        with st.spinner("大腦正在交叉比對摘要與請求項，建立矩陣與產品關聯..."):
+                    analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", min_value=1, max_value=min(len(df), 30), value=min(len(df), 15), key="slider_tab2")
+                    if st.button("🚀 啟動雙軌解析 (矩陣與核心地雷)", use_container_width=True):
+                        with st.spinner("大腦正在交叉比對摘要與請求項..."):
                             try:
                                 sample_df = df.head(analyze_count)
                                 prompt_data = ""
@@ -323,12 +320,11 @@ with main_tab2:
                                 你必須將所有的專利，強制歸類到以下我定義好的「標準維度」中：
                                 ▶️ 達成功效(X軸)：["提升散熱與冷卻", "提升燃燒與動力效率", "結構緊湊與輕量化", "降低震動與噪音", "改善潤滑與耐用度", "降低製造成本"]
                                 ▶️ 技術手段(Y軸)：["汽缸本體與散熱片結構", "活塞與曲軸連桿機構", "氣門與進排氣佈局", "機油道與水套冷卻配置", "燃油噴射與點火控制", "引擎外殼與鎖固元件", "煞車與懸吊系統", "電控與儀表"]
-                                ▶️ 對應產品線：["燃油速克達", "電動機車", "重型機車/檔車", "跨車系通用元件"]
 
                                 請嚴格輸出 JSON 格式 (不要有 markdown 標記)，格式如下：
                                 {{
                                   "matrix": [
-                                    {{"專利號": "XXX", "技術手段": "上方的選項之一", "達成功效": "上方的選項之一", "對應產品線": "上方的選項之一"}}
+                                    {{"專利號": "XXX", "技術手段": "上方的選項之一", "達成功效": "上方的選項之一"}}
                                   ],
                                   "top_patents": [
                                     {{"專利號": "XXX", "專利名稱": "XXX", "威脅度": "🔴極高 / 🟡中等", "入選理由": "此專利..."}}
@@ -342,7 +338,7 @@ with main_tab2:
                                 clean_text = response.text.replace('```json', '').replace('```', '').strip()
                                 clean_text = clean_text[clean_text.find('{'):clean_text.rfind('}')+1]
                                 st.session_state.ai_analysis_result = json.loads(clean_text)
-                                st.success("✅ 深度解析完成！請查看各分頁的圖表分析！")
+                                st.success("✅ 深度解析完成！請查看下方圖表與核心地雷探勘！")
                             except Exception as e:
                                 st.error(f"分析失敗，錯誤：{e}")
 
@@ -354,37 +350,10 @@ with main_tab2:
                     )
                     st.plotly_chart(fig4, use_container_width=True)
 
+            # 🌟 移到地雷前方的：競爭前案快篩庫
             with sub_tab5:
-                st.markdown("### 👑 核心高價值專利探勘 (Killer Patents)")
-                if st.session_state.ai_analysis_result:
-                    top_patents = st.session_state.ai_analysis_result.get("top_patents", [])
-                    for p in top_patents:
-                        with st.container(border=True):
-                            threat_color = "red" if "高" in p.get("威脅度", "") else "orange"
-                            st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
-                            st.markdown(f"**威脅度：** <span style='color:{threat_color}; font-weight:bold;'>{p.get('威脅度')}</span>", unsafe_allow_html=True)
-                            st.markdown(f"**🕵️‍♂️ 深度洞察：** {p.get('入選理由')}")
-                else:
-                    st.write("請先至「AI 技術功效矩陣」頁籤啟動解析。")
-
-            with sub_tab6:
-                st.markdown("### 🛍️ 產品防護牆 (Product vs Patent Mapping)")
-                if st.session_state.ai_analysis_result:
-                    mapping_df = pd.DataFrame(st.session_state.ai_analysis_result["matrix"])
-                    mapping_counts = mapping_df.groupby(['對應產品線', '技術手段']).size().reset_index(name='專利數')
-                    fig_tree = px.treemap(
-                        mapping_counts, path=[px.Constant("全車系專利總覽"), '對應產品線', '技術手段'], 
-                        values='專利數', color='專利數', color_continuous_scale='Teal'
-                    )
-                    fig_tree.update_traces(textinfo="label+value")
-                    st.plotly_chart(fig_tree, use_container_width=True)
-                else:
-                    st.write("請先至「AI 技術功效矩陣」頁籤啟動解析。")
-
-            # 🌟 全新子頁籤：競爭前案快篩庫 (The Funnel)
-            with sub_tab7:
                 st.markdown("### 🗄️ 競爭前案快篩庫 (Triage Database)")
-                st.markdown("透過低耗能的 AI 批次掃描，替對手專利自動貼標。找尋潛在威脅後，**複製專利號至 Tab 1 進行 FTO 深度拆解**。")
+                st.markdown("透過低耗能的 AI 批次掃描，替對手專利自動貼上『技術』與『功效』標籤。找尋潛在威脅後，**複製專利號至 Tab 1 進行 FTO 深度拆解**。")
                 
                 col_comp_stat, col_comp_clear = st.columns([4, 1])
                 with col_comp_stat:
@@ -401,7 +370,7 @@ with main_tab2:
                     with col_btn2:
                         st.write("") 
                         if st.button("🤖 啟動對手前案快篩", use_container_width=True, key="start_comp_btn"):
-                            with st.spinner(f"正在掃描第 {batch_range_comp[0]} 到 {batch_range_comp[1]} 筆對手專利..."):
+                            with st.spinner(f"正在掃描第 {batch_range_comp[0]} 到 {batch_range[1]} 筆對手專利..."):
                                 try:
                                     start_idx = batch_range_comp[0] - 1
                                     end_idx = batch_range_comp[1]
@@ -411,13 +380,13 @@ with main_tab2:
                                     for idx, row in sample_df_comp.iterrows():
                                         p_num = str(row[patent_num_col])
                                         title = str(row[title_col])
-                                        company = str(row[applicant_col]) # 🌟 直接從 Excel 抓公司名稱
+                                        company = str(row[applicant_col]) 
                                         abs_text = str(row[abstract_col]).replace('\n', '')[:250] 
                                         
                                         prompt_data_comp += f"[{p_num}] 公司：{company} | 名稱：{title} | 摘要：{abs_text}\n"
 
                                     prompt_comp = f"""
-                                    你是一位競爭情報分析師。請快速掃描以下機車專利，為每篇提取系統大分類與核心特徵。
+                                    你是一位競爭情報分析師。請快速掃描以下機車專利，為每篇提取系統分類、特殊機構與達成功效。
                                     
                                     【🔴 絕對指令】
                                     大分類只能從以下挑選：["引擎與動力", "傳動", "煞車", "車架懸吊", "電控儀表", "外觀其他"]
@@ -430,7 +399,8 @@ with main_tab2:
                                           "專利名稱": "XXX",
                                           "申請人": "直接填入我提供的公司名稱",
                                           "大分類": "選項之一",
-                                          "核心特徵": "用 15 字以內簡述這篇專利保護了什麼具體結構"
+                                          "特殊機構": "15字內簡述核心物理結構或設計",
+                                          "達成功效": "20字內簡述解決的痛點或達成的效果"
                                         }}
                                       ]
                                     }}
@@ -458,7 +428,6 @@ with main_tab2:
                     st.markdown("---")
                     st.markdown("#### 🎯 競爭前案檢索面板")
                     
-                    # 動態抓取已建立資料庫中的公司名單
                     all_companies = list(set([item.get("申請人", "未知") for item in st.session_state.comp_database]))
                     all_comp_categories = ["引擎與動力", "傳動", "煞車", "車架懸吊", "電控儀表", "外觀其他"]
 
@@ -466,7 +435,7 @@ with main_tab2:
                     with col_c1:
                         filter_company = st.multiselect("🏢 篩選『對手公司』", all_companies, placeholder="例如：三陽工業")
                     with col_c2:
-                        filter_sys = st.multiselect("🏷️ 篩選『系統分類』", all_comp_categories, placeholder="例如：引擎與動力")
+                        filter_sys = st.multiselect("📂 篩選『系統分類』", all_comp_categories, placeholder="例如：引擎與動力")
                     with col_c3:
                         search_comp = st.text_input("🔍 關鍵字搜尋特徵", placeholder="例如：冷卻、水泵...")
 
@@ -476,7 +445,7 @@ with main_tab2:
                     if filter_sys:
                         filtered_comp_db = [item for item in filtered_comp_db if item.get("大分類") in filter_sys]
                     if search_comp:
-                        filtered_comp_db = [item for item in filtered_comp_db if search_comp in item.get("核心特徵", "") or search_comp in item.get("專利名稱", "")]
+                        filtered_comp_db = [item for item in filtered_comp_db if search_comp in item.get("特殊機構", "") or search_comp in item.get("達成功效", "") or search_comp in item.get("專利名稱", "")]
 
                     if not filtered_comp_db:
                         st.warning("沒有符合條件的專利。")
@@ -484,11 +453,29 @@ with main_tab2:
                         for p in filtered_comp_db:
                             with st.container(border=True):
                                 st.markdown(f"**[{p.get('專利號')}] {p.get('專利名稱')}**")
-                                c1, c2, c3 = st.columns([1, 1, 2])
+                                c1, c2 = st.columns(2)
                                 c1.info(f"🏢 **申請人**：{p.get('申請人')}")
                                 c2.warning(f"📂 **系統**：{p.get('大分類')}")
-                                c3.error(f"⚙️ **特徵**：{p.get('核心特徵')}")
+                                
+                                c3, c4 = st.columns(2)
+                                c3.error(f"⚙️ **特殊機構**：{p.get('特殊機構')}")
+                                c4.success(f"🎯 **達成功效**：{p.get('達成功效')}")
+                                
                                 st.markdown(f"👉 **下一步：** 複製專利號 `{p.get('專利號')}`，前往 **[Tab 1]** 執行 PDF 深度 FTO 拆解！")
+
+            with sub_tab6:
+                st.markdown("### 👑 核心地雷探勘 (Killer Patents)")
+                st.info("💡 AI 已從上方矩陣分析中，為您篩選出最具威脅性與特別意義的核心專利。")
+                if st.session_state.ai_analysis_result:
+                    top_patents = st.session_state.ai_analysis_result.get("top_patents", [])
+                    for p in top_patents:
+                        with st.container(border=True):
+                            threat_color = "red" if "高" in p.get("威脅度", "") else "orange"
+                            st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
+                            st.markdown(f"**威脅度：** <span style='color:{threat_color}; font-weight:bold;'>{p.get('威脅度')}</span>", unsafe_allow_html=True)
+                            st.markdown(f"**🕵️‍♂️ 深度洞察：** {p.get('入選理由')}")
+                else:
+                    st.write("請先至「AI 技術功效矩陣」頁籤啟動解析。")
 
         except Exception as e:
             st.error(f"檔案讀取失敗，錯誤訊息：{e}")
