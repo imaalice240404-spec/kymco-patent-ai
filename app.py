@@ -23,12 +23,14 @@ model = genai.GenerativeModel('gemini-2.5-flash')
 # 初始化所有 Session State
 if 'report_content' not in st.session_state:
     st.session_state.report_content = ""
+if 'claim_data' not in st.session_state:         # 🌟 新增 Tab 2 的記憶體
+    st.session_state.claim_data = None 
 if 'ai_analysis_result' not in st.session_state:
     st.session_state.ai_analysis_result = None
 if 'rd_database' not in st.session_state:
     st.session_state.rd_database = [] 
 if 'comp_database' not in st.session_state:
-    st.session_state.comp_database = [] # Tab 2: 競爭前案庫
+    st.session_state.comp_database = [] 
 
 st.set_page_config(page_title="機車專利大數據戰情室", layout="wide")
 
@@ -55,35 +57,36 @@ if not check_password():
     st.stop()
 # --- 門禁結束 ---
 
-st.title("🏍️ 機車專利 AI 戰略分析系統 (旗艦全景版)")
+st.title("🏍️ 機車專利 AI 戰略分析系統 (四核心旗艦版)")
 st.markdown("---")
 
-# 🌟 建立頂層三模式切換
-main_tab1, main_tab2, main_tab3 = st.tabs([
-    "📄 戰術：單篇深度解剖 (PDF)", 
-    "🗺️ 戰略：宏觀與前案篩選 (Excel)", 
-    "💡 賦能：研發專屬彈藥庫 (Excel)"
+# 🌟 建立頂層四模式切換
+main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
+    "📄 Tab 1 戰術：單篇深度解剖 (FTO破口)", 
+    "⚖️ Tab 2 戰術：請求項文義解析 (三視窗連動)", 
+    "🗺️ Tab 3 戰略：宏觀與前案快篩 (Excel)", 
+    "💡 Tab 4 賦能：研發專屬彈藥庫 (Excel)"
 ])
 
 # ==========================================
-# 模式一：單篇專利深度解剖 (PDF)
+# 📄 Tab 1：單篇專利深度解剖 (PDF)
 # ==========================================
 with main_tab1:
     st.markdown("支援 Google Patents 快速連線、自動辨識發明/新型專利，並產出精準戰略報告。")
     col_input1, col_input2 = st.columns([1, 2])
     with col_input1:
         st.subheader("1️⃣ 案件資訊與法態")
-        applicant = st.text_input("申請人 (對手公司)", placeholder="例如：光陽工業", key="pdf_applicant")
-        patent_num = st.text_input("專利號 (從 Tab 2 篩選後貼上)", placeholder="例如：I856744 或 M654321", key="pdf_num")
+        applicant = st.text_input("申請人 (對手公司)", placeholder="例如：光陽工業", key="pdf_applicant_t1")
+        patent_num = st.text_input("專利號 (從 Tab 3 篩選後貼上)", placeholder="例如：I856744 或 M654321", key="pdf_num_t1")
         if patent_num:
             clean_num = ''.join(e for e in patent_num if e.isalnum())
             google_patents_url = f"https://patents.google.com/patent/TW{clean_num}B" if clean_num.upper().startswith('I') else f"https://patents.google.com/patent/TW{clean_num}U"
             st.markdown(f"👉 [點我秒開 Google Patents 查看 **{patent_num}**]({google_patents_url})")
-        status = st.selectbox("目前案件狀態", ["請選擇...", "公開", "公告/核准", "核駁", "撤回", "消滅"], key="pdf_status")
+        status = st.selectbox("目前案件狀態", ["請選擇...", "公開", "公告/核准", "核駁", "撤回", "消滅"], key="pdf_status_t1")
 
     with col_input2:
         st.subheader("2️⃣ 上傳專利 PDF")
-        uploaded_pdf = st.file_uploader("請拖曳或選擇專利 PDF 檔", type=["pdf"], key="pdf_upload")
+        uploaded_pdf = st.file_uploader("請拖曳或選擇專利 PDF 檔", type=["pdf"], key="pdf_upload_t1")
 
     def create_word_doc(text):
         doc = Document()
@@ -95,7 +98,7 @@ with main_tab1:
         doc.save(bio)
         return bio.getvalue()
 
-    if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True):
+    if st.button("🚀 啟動 PDF 視覺化深度解剖", use_container_width=True, key="btn_run_t1"):
         if status == "請選擇...":
             st.warning("⚠️ 請選擇目前的案件狀態！")
         elif uploaded_pdf is None:
@@ -232,35 +235,150 @@ with main_tab1:
                 label="📥 一鍵下載分析報告 (Word 格式)",
                 data=word_file, file_name=f"Patent_Report_{patent_num if patent_num else 'Result'}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                use_container_width=True
+                use_container_width=True,
+                key="dl_btn_t1"
             )
             report_container = st.container(height=800)
             with report_container:
                 st.markdown(st.session_state.report_content)
 
-
 # ==========================================
-# 模式二：宏觀專利大數據雷達 (Excel) + 競爭前案快篩
+# ⚖️ Tab 2：請求項文義解析 (三視窗連動) 🌟🌟🌟
 # ==========================================
 with main_tab2:
-    st.markdown("雙軌解析摘要與請求項，產出技術功效矩陣，並建立**對手競爭前案快篩庫**。")
-    uploaded_excel = st.file_uploader("請上傳從 TWPAT 匯出的 Excel (有效專利/競爭對手)", type=["xlsx", "xls", "csv"], key="excel_upload_tab2")
+    st.markdown("實務級三視窗連動：無死角對齊「專利圖面、請求項、說明書全文本對應 (含段落編號)」，**完整收錄全專利所有元件**。")
+    uploaded_pdf_t2 = st.file_uploader("📥 請上傳一份專利 PDF 檔 (供細部比對用)", type=["pdf"], key="pdf_upload_t2")
 
-    if uploaded_excel:
+    if st.button("🤖 啟動精細拆解 (建立全文本與全元件字典)", use_container_width=True, key="btn_run_t2"):
+        if uploaded_pdf_t2 is None:
+            st.warning("⚠️ 請先上傳 PDF 檔案！")
+        else:
+            with st.spinner("大腦正在建立全本專利的「符號字典」與「說明書全文本」... (約需 20 秒)"):
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                        tmp_file.write(uploaded_pdf_t2.getvalue())
+                        tmp_file_path = tmp_file.name
+
+                    gemini_file = genai.upload_file(tmp_file_path)
+
+                    prompt_t2 = '''
+                    你現在是一個精準的專利資料庫解析系統。請閱讀這份專利，並將內容轉化為結構化的 JSON 格式。
+
+                    【任務 1：完整元件符號字典 (絕對不能漏)】
+                    請去尋找專利說明書最後面的「符號簡單說明」或文中的對應段落。
+                    將裡面提及的【每一個】元件符號跟名稱提取出來。即使是小螺絲、墊片也必須列出。
+
+                    【任務 2：請求項 1 拆解】
+                    將請求項 1 逐句拆解為陣列。
+
+                    【任務 3：實施方式全文本提取】
+                    請將專利中「發明說明 / 實施方式」的所有段落完整提取出來。
+                    必須保留原本的【00xx】段落編號。如果該專利較舊沒有段落編號，請以自然段落區分。
+
+                    【🔴 絕對指令：輸出純 JSON 格式】
+                    嚴格符合以下結構：
+                    {
+                      "claim_1": [
+                        "一種機車，包含：",
+                        "一車架10；"
+                      ],
+                      "components": [
+                        {"id": "10", "name": "車架"},
+                        {"id": "40", "name": "後搖臂"}
+                      ],
+                      "spec_texts": [
+                        "【0015】如圖1所示，車架10包含一頭管11...",
+                        "【0016】該後搖臂40設置於..."
+                      ]
+                    }
+                    '''
+                    
+                    response_t2 = model.generate_content([gemini_file, prompt_t2])
+                    clean_text_t2 = response_t2.text.replace('```json', '').replace('```', '').strip()
+                    clean_text_t2 = clean_text_t2[clean_text_t2.find('{'):clean_text_t2.rfind('}')+1]
+                    st.session_state.claim_data = json.loads(clean_text_t2)
+                    
+                    st.success("✅ 全本字典建構完成！請使用下方下拉選單進行無死角查閱。")
+                    os.remove(tmp_file_path)
+                    genai.delete_file(gemini_file.name)
+                except Exception as e:
+                    st.error(f"分析失敗，可能是 PDF 過大或格式問題：{e}")
+
+    if st.session_state.claim_data:
+        st.markdown("---")
+        components = st.session_state.claim_data.get("components", [])
+        if components:
+            comp_options = {f"[{c['id']}] {c['name']}": c for c in components}
+            
+            col_select, col_empty = st.columns([1, 1])
+            with col_select:
+                selected_comp_label = st.selectbox(f"🎯 選擇要追蹤的比對目標 (已成功載入 {len(components)} 個元件)：", list(comp_options.keys()), key="comp_select_t2")
+                active_comp = comp_options[selected_comp_label]
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_img, col_claim, col_spec = st.columns([1.2, 1, 1.2])
+            
+            with col_img:
+                st.markdown("### 🖼️ 專利圖面檢視")
+                if uploaded_pdf_t2:
+                    pdf_doc_t2 = pdfium.PdfDocument(uploaded_pdf_t2.getvalue())
+                    total_pages = len(pdf_doc_t2)
+                    page_num = st.number_input(f"跳至頁碼 (共 {total_pages} 頁，圖面通常在後方)", min_value=1, max_value=total_pages, value=min(2, total_pages), key="page_jump_t2")
+                    with st.container(height=650, border=True):
+                        page = pdf_doc_t2[page_num - 1]
+                        img = page.render(scale=2.0).to_pil() 
+                        st.image(img, use_container_width=True)
+                    pdf_doc_t2.close()
+            
+            with col_claim:
+                st.markdown("### 🧩 獨立項文義")
+                with st.container(height=750, border=True):
+                    claims = st.session_state.claim_data.get("claim_1", [])
+                    for line in claims:
+                        if active_comp['name'] in line:
+                            highlighted_line = line.replace(active_comp['name'], f"<span style='background-color: #fff3cd; font-weight: bold; color: #856404; padding: 2px 4px; border-radius: 3px;'>{active_comp['name']}</span>")
+                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{highlighted_line}</div>", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line}</div>", unsafe_allow_html=True)
+
+            with col_spec:
+                st.markdown("### 📖 說明書具體限制原文")
+                with st.container(height=750, border=True):
+                    st.info(f"📍 目標元件：**{active_comp['name']} ({active_comp['id']})**")
+                    
+                    spec_texts = st.session_state.claim_data.get('spec_texts', [])
+                    found_texts = [text for text in spec_texts if active_comp['name'] in text or active_comp['id'] in text]
+                    
+                    if not found_texts:
+                        st.warning(f"在實施方式中，未找到針對「{active_comp['name']}」的進一步描述文字。")
+                    else:
+                        for text in found_texts:
+                            highlighted_text = text.replace(active_comp['name'], f"<mark style='background-color: #cce5ff; color: #004085; font-weight: bold; padding: 2px 4px; border-radius: 3px;'>{active_comp['name']}</mark>")
+                            st.markdown(f"<div style='background-color: #f8f9fa; padding: 12px; border-left: 5px solid #007bff; margin-bottom: 15px; line-height: 1.6;'>{highlighted_text}</div>", unsafe_allow_html=True)
+
+
+# ==========================================
+# 🗺️ Tab 3：宏觀專利大數據雷達 (Excel) + 競爭前案快篩
+# ==========================================
+with main_tab3:
+    st.markdown("雙軌解析摘要與請求項，產出技術功效矩陣，並建立**對手競爭前案快篩庫**。")
+    uploaded_excel_t3 = st.file_uploader("請上傳從 TWPAT 匯出的 Excel (有效專利/競爭對手)", type=["xlsx", "xls", "csv"], key="excel_upload_t3")
+
+    if uploaded_excel_t3:
         try:
-            if uploaded_excel.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_excel)
+            if uploaded_excel_t3.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_excel_t3)
             else:
-                df = pd.read_excel(uploaded_excel)
+                df = pd.read_excel(uploaded_excel_t3)
                 
             st.success(f"✅ 成功載入資料！共計 {len(df)} 筆專利。")
             
-            # 🌟 重新排列 Tab 2 子頁籤：快篩庫移到地雷探勘前面，移除產品防護牆
             sub_tab1, sub_tab2, sub_tab3, sub_tab4, sub_tab5, sub_tab6 = st.tabs([
                 "🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區", "🧠 AI 技術功效矩陣", "🗄️ 競爭前案快篩庫", "👑 核心地雷探勘"
             ])
             
-            applicant_col = next((col for col in df.columns if '申請人' in col), None)
+            # 🌟 修復 Bug：確保抓得到「專利權人」或「申請人」
+            applicant_col = next((col for col in df.columns if '申請人' in col or '權人' in col), None)
             date_col = next((col for col in df.columns if '申請日' in col or '公開日' in col or '公告日' in col), None)
             ipc_col = next((col for col in df.columns if 'IPC' in col.upper()), None)
             title_col = next((col for col in df.columns if '專利名稱' in col or '標題' in col), None)
@@ -300,8 +418,8 @@ with main_tab2:
             with sub_tab4:
                 st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
                 if abstract_col and title_col and patent_num_col:
-                    analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", min_value=1, max_value=min(len(df), 30), value=min(len(df), 15), key="slider_tab2")
-                    if st.button("🚀 啟動雙軌解析 (矩陣與核心地雷)", use_container_width=True):
+                    analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", min_value=1, max_value=min(len(df), 30), value=min(len(df), 15), key="slider_t3")
+                    if st.button("🚀 啟動雙軌解析 (矩陣與核心地雷)", use_container_width=True, key="btn_matrix_t3"):
                         with st.spinner("大腦正在交叉比對摘要與請求項..."):
                             try:
                                 sample_df = df.head(analyze_count)
@@ -317,11 +435,10 @@ with main_tab2:
                                 你是一位世界頂尖的專利佈局與侵權分析師。請交叉閱讀以下 {analyze_count} 篇機車領域專利的摘要與請求項。
                                 
                                 【🔴 絕對指令：強制收斂分類】
-                                你必須將所有的專利，強制歸類到以下我定義好的「標準維度」中：
                                 ▶️ 達成功效(X軸)：["提升散熱與冷卻", "提升燃燒與動力效率", "結構緊湊與輕量化", "降低震動與噪音", "改善潤滑與耐用度", "降低製造成本"]
                                 ▶️ 技術手段(Y軸)：["汽缸本體與散熱片結構", "活塞與曲軸連桿機構", "氣門與進排氣佈局", "機油道與水套冷卻配置", "燃油噴射與點火控制", "引擎外殼與鎖固元件", "煞車與懸吊系統", "電控與儀表"]
 
-                                請嚴格輸出 JSON 格式 (不要有 markdown 標記)，格式如下：
+                                請嚴格輸出 JSON 格式：
                                 {{
                                   "matrix": [
                                     {{"專利號": "XXX", "技術手段": "上方的選項之一", "達成功效": "上方的選項之一"}}
@@ -350,27 +467,26 @@ with main_tab2:
                     )
                     st.plotly_chart(fig4, use_container_width=True)
 
-            # 🌟 移到地雷前方的：競爭前案快篩庫
             with sub_tab5:
                 st.markdown("### 🗄️ 競爭前案快篩庫 (Triage Database)")
-                st.markdown("透過低耗能的 AI 批次掃描，替對手專利自動貼上『技術』與『功效』標籤。找尋潛在威脅後，**複製專利號至 Tab 1 進行 FTO 深度拆解**。")
+                st.markdown("透過低耗能的 AI 批次掃描，替對手專利自動貼標。找尋潛在威脅後，**複製專利號至 Tab 1 或 Tab 2 進行深度拆解**。")
                 
                 col_comp_stat, col_comp_clear = st.columns([4, 1])
                 with col_comp_stat:
                     st.info(f"🗄️ 目前已快篩累積： **{len(st.session_state.comp_database)}** 筆競爭前案。")
                 with col_comp_clear:
-                    if st.button("🗑️ 清空快篩庫", use_container_width=True, key="clear_comp_btn"):
+                    if st.button("🗑️ 清空快篩庫", use_container_width=True, key="clear_comp_btn_t3"):
                         st.session_state.comp_database = []
                         st.rerun()
 
                 if abstract_col and title_col and patent_num_col and applicant_col:
                     col_slider2, col_btn2 = st.columns([2, 1])
                     with col_slider2:
-                        batch_range_comp = st.slider("選擇批次快篩區間 (列號)", min_value=1, max_value=len(df), value=(1, min(15, len(df))), key="comp_batch_slider")
+                        batch_range_comp = st.slider("選擇批次快篩區間 (列號)", min_value=1, max_value=len(df), value=(1, min(15, len(df))), key="comp_batch_slider_t3")
                     with col_btn2:
                         st.write("") 
-                        if st.button("🤖 啟動對手前案快篩", use_container_width=True, key="start_comp_btn"):
-                            with st.spinner(f"正在掃描第 {batch_range_comp[0]} 到 {batch_range[1]} 筆對手專利..."):
+                        if st.button("🤖 啟動對手前案快篩", use_container_width=True, key="start_comp_btn_t3"):
+                            with st.spinner(f"正在掃描第 {batch_range_comp[0]} 到 {batch_range_comp[1]} 筆對手專利..."):
                                 try:
                                     start_idx = batch_range_comp[0] - 1
                                     end_idx = batch_range_comp[1]
@@ -433,11 +549,11 @@ with main_tab2:
 
                     col_c1, col_c2, col_c3 = st.columns(3)
                     with col_c1:
-                        filter_company = st.multiselect("🏢 篩選『對手公司』", all_companies, placeholder="例如：三陽工業")
+                        filter_company = st.multiselect("🏢 篩選『對手公司』", all_companies, placeholder="例如：三陽工業", key="filter_comp_t3")
                     with col_c2:
-                        filter_sys = st.multiselect("📂 篩選『系統分類』", all_comp_categories, placeholder="例如：引擎與動力")
+                        filter_sys = st.multiselect("📂 篩選『系統分類』", all_comp_categories, placeholder="例如：引擎與動力", key="filter_sys_t3")
                     with col_c3:
-                        search_comp = st.text_input("🔍 關鍵字搜尋特徵", placeholder="例如：冷卻、水泵...")
+                        search_comp = st.text_input("🔍 關鍵字搜尋特徵", placeholder="例如：冷卻、水泵...", key="search_comp_t3")
 
                     filtered_comp_db = st.session_state.comp_database
                     if filter_company:
@@ -461,7 +577,7 @@ with main_tab2:
                                 c3.error(f"⚙️ **特殊機構**：{p.get('特殊機構')}")
                                 c4.success(f"🎯 **達成功效**：{p.get('達成功效')}")
                                 
-                                st.markdown(f"👉 **下一步：** 複製專利號 `{p.get('專利號')}`，前往 **[Tab 1]** 執行 PDF 深度 FTO 拆解！")
+                                st.markdown(f"👉 **下一步：** 複製專利號 `{p.get('專利號')}`，前往 **[Tab 1 或 Tab 2]** 執行深度拆解！")
 
             with sub_tab6:
                 st.markdown("### 👑 核心地雷探勘 (Killer Patents)")
@@ -481,13 +597,13 @@ with main_tab2:
             st.error(f"檔案讀取失敗，錯誤訊息：{e}")
 
 # ==========================================
-# 模式三：研發專屬彈藥庫 (Excel)
+# 💡 Tab 4：研發專屬彈藥庫 (Excel)
 # ==========================================
-with main_tab3:
+with main_tab4:
     st.markdown("### 🛠️ 研發解題靈感與開源技術庫")
     st.markdown("將已失效的專利轉化為 RD 靈感庫，透過大系統分類聚攏資料，並支援分批寫入資料庫。")
     
-    uploaded_rd_excel = st.file_uploader("📥 請上傳 TWPAT 匯出的 Excel (已篩選為失效專利)", type=["xlsx", "xls", "csv"], key="rd_excel_upload")
+    uploaded_rd_excel = st.file_uploader("📥 請上傳 TWPAT 匯出的 Excel (已篩選為失效專利)", type=["xlsx", "xls", "csv"], key="rd_excel_upload_t4")
 
     if uploaded_rd_excel:
         try:
@@ -509,7 +625,7 @@ with main_tab3:
             with col_db_stat:
                 st.info(f"🗄️ 目前系統彈藥庫已累積： **{len(st.session_state.rd_database)}** 筆開源技術。")
             with col_db_clear:
-                if st.button("🗑️ 清空資料庫", use_container_width=True, key="clear_db_btn"):
+                if st.button("🗑️ 清空資料庫", use_container_width=True, key="clear_db_btn_t4"):
                     st.session_state.rd_database = []
                     st.rerun()
 
@@ -520,11 +636,11 @@ with main_tab3:
                 with col_slider:
                     batch_range = st.slider("選擇本次要交給 AI 處理的資料區間 (列號)", 
                                             min_value=1, max_value=len(df_rd), 
-                                            value=(1, min(15, len(df_rd))), key="rd_batch_slider")
+                                            value=(1, min(15, len(df_rd))), key="rd_batch_slider_t4")
                 
                 with col_btn:
                     st.write("") 
-                    if st.button("🤖 開始批次寫入彈藥庫", use_container_width=True, key="start_batch_btn"):
+                    if st.button("🤖 開始批次寫入彈藥庫", use_container_width=True, key="start_batch_btn_t4"):
                         with st.spinner(f"大腦正在解讀第 {batch_range[0]} 到 {batch_range[1]} 筆專利..."):
                             try:
                                 start_idx = batch_range[0] - 1
@@ -590,9 +706,9 @@ with main_tab3:
                 all_categories = ["引擎與動力系統", "傳動系統", "煞車系統", "車架與懸吊系統", "電系與儀表控制", "外觀件與其他"]
                 col_f1, col_f2 = st.columns(2)
                 with col_f1:
-                    filter_cat = st.multiselect("🏷️ 選擇『研發系統大分類』", all_categories, placeholder="例如：尋找『煞車系統』相關機構", key="filter_cat")
+                    filter_cat = st.multiselect("🏷️ 選擇『研發系統大分類』", all_categories, placeholder="例如：尋找『煞車系統』相關機構", key="filter_cat_t4")
                 with col_f2:
-                    search_query = st.text_input("🎯 關鍵字搜尋 (找痛點或機構)", placeholder="例如：散熱、連動、減震...", key="search_query")
+                    search_query = st.text_input("🎯 關鍵字搜尋 (找痛點或機構)", placeholder="例如：散熱、連動、減震...", key="search_query_t4")
 
                 st.markdown("##### 📚 檢索結果 (解題靈感卡)")
                 
