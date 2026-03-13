@@ -15,6 +15,7 @@ if selected_key:
     genai.configure(api_key=selected_key)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
+# 🌟 初始化：RD 資料庫 (用來不斷累積資料)
 if 'rd_database' not in st.session_state:
     st.session_state.rd_database = []
 
@@ -39,11 +40,11 @@ if not check_password():
     st.stop()
 # --- 門禁結束 ---
 
-st.title("🧪 Tab 3 研發專屬彈藥庫 (獨立測試版)")
-st.markdown("這裡絕對安全，不會影響到您原本的 `app.py`！")
+st.title("🧪 Tab 3 研發專屬彈藥庫 (無限累積與強制收斂版)")
+st.markdown("將已失效的專利轉化為 RD 靈感庫，透過大系統分類聚攏資料，並支援分批寫入資料庫。")
 st.markdown("---")
 
-uploaded_excel = st.file_uploader("📥 請上傳 TWPAT 匯出的 Excel (需含『摘要』與『申請專利範圍』)", type=["xlsx", "xls", "csv"], key="rd_excel")
+uploaded_excel = st.file_uploader("📥 請上傳 TWPAT 匯出的 Excel (已篩選為失效專利)", type=["xlsx", "xls", "csv"], key="rd_excel")
 
 if uploaded_excel:
     try:
@@ -59,39 +60,59 @@ if uploaded_excel:
         abstract_col = next((col for col in df.columns if '摘要' in col), None)
         patent_num_col = next((col for col in df.columns if '號' in col and ('公開' in col or '公告' in col or '申請' in col)), None)
         claim_col = next((col for col in df.columns if '申請專利範圍' in col or '請求項' in col), None)
-        status_col = next((col for col in df.columns if '狀態' in col or '法態' in col or '專利權' in col), None)
 
         st.markdown("---")
-        st.markdown("#### 第一階段：AI 彈藥庫自動標籤化")
+        
+        # 顯示目前資料庫狀態
+        col_db_stat, col_db_clear = st.columns([4, 1])
+        with col_db_stat:
+            st.info(f"🗄️ 目前系統彈藥庫已累積： **{len(st.session_state.rd_database)}** 筆開源技術。")
+        with col_db_clear:
+            if st.button("🗑️ 清空資料庫", use_container_width=True):
+                st.session_state.rd_database = []
+                st.rerun()
+
+        st.markdown("#### 第一階段：分批萃取與標籤化 (Batch Processing)")
+        st.write("為了維持 AI 準確度與避免超載，請每次選擇大約 15~20 筆的範圍進行建檔。建檔完畢後，資料會自動加入上方的彈藥庫中。")
         
         if abstract_col and title_col and patent_num_col:
             col_slider, col_btn = st.columns([2, 1])
             with col_slider:
-                analyze_count = st.slider("選擇要批次建檔的專利數量 (建議先選 3-5 篇測試)", min_value=1, max_value=min(len(df), 20), value=min(len(df), 3))
+                # 🌟 雙向拉桿，讓您可以選擇 1~20, 然後 21~40
+                batch_range = st.slider("選擇本次要交給 AI 處理的資料區間 (列號)", 
+                                        min_value=1, max_value=len(df), 
+                                        value=(1, min(15, len(df))))
             
             with col_btn:
                 st.write("") 
-                if st.button("🤖 啟動 AI 萃取與標籤化", use_container_width=True):
-                    with st.spinner("大腦正在閱讀專利，並強制貼上產品與技術標籤..."):
+                if st.button("🤖 開始批次寫入彈藥庫", use_container_width=True):
+                    with st.spinner(f"大腦正在解讀第 {batch_range[0]} 到 {batch_range[1]} 筆專利..."):
                         try:
-                            sample_df = df.head(analyze_count)
+                            # 依照拉桿範圍擷取資料
+                            start_idx = batch_range[0] - 1
+                            end_idx = batch_range[1]
+                            sample_df = df.iloc[start_idx:end_idx]
+                            
                             prompt_data = ""
                             for idx, row in sample_df.iterrows():
                                 p_num = str(row[patent_num_col])
                                 title = str(row[title_col])
-                                status = str(row[status_col]) if status_col else "未知"
                                 abs_text = str(row[abstract_col]).replace('\n', '')[:250] 
                                 claim_text = str(row[claim_col]).replace('\n', '')[:300] if claim_col else "無"
                                 
-                                prompt_data += f"[{p_num}] 名稱：{title} | 法態：{status} | 摘要：{abs_text} | 請求項：{claim_text}\n"
+                                prompt_data += f"[{p_num}] 名稱：{title} | 摘要：{abs_text} | 請求項：{claim_text}\n"
 
+                            # 🌟 強制收斂的大分類字典
                             prompt = f"""
-                            你是一位專利技術轉譯專家，負責將專利資料庫轉化為研發工程師(RD)可以快速檢索的「解題靈感庫」。
-                            請閱讀以下專利，並為每一篇提取出三個關鍵維度的標籤，以及一段 RD 友善的核心解法。
+                            你是一位機車廠的資深研發顧問。請閱讀以下專利，為每一篇提取三個維度的資訊，以建立研發知識庫。
 
-                            【🔴 強制收斂字典】為了方便下拉選單檢索，請盡量使用以下標準詞彙（若無相符可自創，但以簡潔為原則）：
-                            * **對應產品**：電動機車、燃油速克達、重型機車、電池模組、馬達控制器、車架懸吊、引擎本體。
-                            * **技術手段**：水冷散熱、氣冷結構、連桿機構、齒輪傳動、感測器配置、鎖固件改良、流體通道、避震結構。
+                            【🔴 絕對指令 1：系統大分類】(只能從這 6 個選項中挑選 1 個)
+                            請根據「專利名稱」與「請求項」，判斷該專利屬於哪一個系統：
+                            ["引擎與動力系統", "傳動系統", "煞車系統", "車架與懸吊系統", "電系與儀表控制", "外觀件與其他"]
+
+                            【🔴 絕對指令 2：特殊機構與達成功效】
+                            * **特殊機構**：從摘要與請求項中提取這項專利的核心物理設計或結構（例如：連動鋼索、螺旋水套、雙活塞卡鉗）。字數限 15 字內。
+                            * **達成功效**：這個特殊機構具體解決了什麼痛點？或達成了什麼效果？（例如：避免煞車力分配不均、提升引擎散熱）。字數限 20 字內。
 
                             請嚴格輸出 JSON 格式 (不要有 markdown 標記)，格式如下：
                             {{
@@ -99,11 +120,10 @@ if uploaded_excel:
                                 {{
                                   "專利號": "XXX",
                                   "專利名稱": "XXX",
-                                  "法態": "XXX",
-                                  "對應產品": "電動機車", 
-                                  "技術手段": "水冷散熱",
-                                  "解決痛點": "高速運轉時馬達過熱導致效率下降",
-                                  "核心解法": "透過在馬達外殼設置螺旋狀冷卻水道，增加散熱面積..."
+                                  "大分類": "這裡只能填上方規定的6個選項之一", 
+                                  "特殊機構": "XXX",
+                                  "達成功效": "XXX",
+                                  "核心解法": "用白話文簡述這項設計的運作原理，給RD當作參考。"
                                 }}
                               ]
                             }}
@@ -117,8 +137,15 @@ if uploaded_excel:
                             clean_text = clean_text[clean_text.find('{'):clean_text.rfind('}')+1]
                             
                             result_json = json.loads(clean_text)
-                            st.session_state.rd_database = result_json.get("database", [])
-                            st.success("✅ 建檔完成！請使用下方濾網尋找研發靈感。")
+                            new_data = result_json.get("database", [])
+                            
+                            # 🌟 將新分析出來的資料「疊加」進去資料庫，並排除重複的專利號
+                            existing_pnums = [p['專利號'] for p in st.session_state.rd_database]
+                            for item in new_data:
+                                if item['專利號'] not in existing_pnums:
+                                    st.session_state.rd_database.append(item)
+                                    
+                            st.success(f"✅ 成功將 {len(new_data)} 筆資料匯入彈藥庫！")
                             
                         except Exception as e:
                             st.error(f"分析失敗，錯誤：{e}")
@@ -130,39 +157,39 @@ if uploaded_excel:
             st.markdown("---")
             st.markdown("#### 🔍 第二階段：RD 專屬檢索面板")
             
-            all_products = list(set([item.get("對應產品", "未知") for item in st.session_state.rd_database]))
-            all_techs = list(set([item.get("技術手段", "未知") for item in st.session_state.rd_database]))
+            # 使用固定的大分類選項
+            all_categories = ["引擎與動力系統", "傳動系統", "煞車系統", "車架與懸吊系統", "電系與儀表控制", "外觀件與其他"]
 
             col_f1, col_f2 = st.columns(2)
             with col_f1:
-                filter_product = st.multiselect("🏷️ 篩選『對應產品』", all_products, placeholder="選擇產品...")
+                filter_cat = st.multiselect("🏷️ 選擇『研發系統大分類』", all_categories, placeholder="例如：尋找『煞車系統』相關機構")
             with col_f2:
-                filter_tech = st.multiselect("⚙️ 篩選『技術手段』", all_techs, placeholder="選擇技術...")
+                # 讓使用者可以輸入關鍵字去搜尋「達成功效」
+                search_query = st.text_input("🎯 關鍵字搜尋 (找痛點或機構)", placeholder="例如：散熱、連動、減震...")
 
             st.markdown("##### 📚 檢索結果 (解題靈感卡)")
             
             filtered_db = st.session_state.rd_database
-            if filter_product:
-                filtered_db = [item for item in filtered_db if item.get("對應產品") in filter_product]
-            if filter_tech:
-                filtered_db = [item for item in filtered_db if item.get("技術手段") in filter_tech]
+            if filter_cat:
+                filtered_db = [item for item in filtered_db if item.get("大分類") in filter_cat]
+            if search_query:
+                filtered_db = [item for item in filtered_db if search_query in item.get("特殊機構", "") or search_query in item.get("達成功效", "") or search_query in item.get("核心解法", "")]
 
             if not filtered_db:
                 st.warning("沒有符合條件的專利，請放寬篩選條件。")
             else:
                 for p in filtered_db:
                     with st.container(border=True):
-                        status_text = p.get('法態', '')
-                        is_open_source = any(keyword in status_text for keyword in ["消滅", "撤回", "放棄", "屆滿"])
-                        badge = "🟢 **【可合法參考：已失效/開源】**" if is_open_source else "🔴 **【注意侵權：專利有效】**"
+                        # 🌟 強制標示為開源綠燈
+                        badge = "🟢 **【開源技術庫：免授權直接參考】**"
                         
                         st.markdown(f"**[{p.get('專利號')}] {p.get('專利名稱')}**")
-                        st.markdown(f"{badge} | 法態紀錄：{status_text}")
+                        st.markdown(f"{badge}")
                         
                         col_tag1, col_tag2, col_tag3 = st.columns(3)
-                        col_tag1.info(f"🏍️ **產品**：{p.get('對應產品')}")
-                        col_tag2.warning(f"🔧 **技術**：{p.get('技術手段')}")
-                        col_tag3.error(f"🔥 **痛點**：{p.get('解決痛點')}")
+                        col_tag1.info(f"📂 **系統分類**：{p.get('大分類')}")
+                        col_tag2.warning(f"⚙️ **特殊機構**：{p.get('特殊機構')}")
+                        col_tag3.error(f"🎯 **達成功效**：{p.get('達成功效')}")
                         
                         st.markdown(f"**💡 核心解法 (RD 參考設計)：**\n> {p.get('核心解法')}")
 
