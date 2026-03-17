@@ -57,13 +57,13 @@ if not check_password():
     st.stop()
 # --- 門禁結束 ---
 
-st.title("🏍️ 機車專利 AI 戰略分析系統 (四核心旗艦版)")
+st.title("🏍️ 機車專利分析系統 ")
 st.markdown("---")
 
 # 🌟 建立頂層四模式切換
 main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
-    "📄 Tab 1 戰術：單篇深度解剖 (FTO破口)", 
-    "⚖️ Tab 2 戰術：請求項文義解析 (三視窗連動)", 
+    "📄 Tab 1 戰術：單篇深度解剖", 
+    "⚖️ Tab 2 戰術：請求項文義解析 ", 
     "🗺️ Tab 3 戰略：宏觀與前案快篩 (Excel)", 
     "💡 Tab 4 賦能：研發專屬彈藥庫 (Excel)"
 ])
