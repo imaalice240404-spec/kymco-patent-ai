@@ -228,7 +228,6 @@ with main_tab1:
                 st.markdown(f"#### 🎯 研發戰略看板")
                 st.markdown(f"**{rd_data.get('title', '未知技術')}**")
                 
-                # 修復之前的錯誤寫法，改用乾淨的 HTML 標籤
                 f_color = "red" if "🔴" in st.session_state.ip_report_content else "orange" if "🟡" in st.session_state.ip_report_content else "green"
                 f_text = "🔴 具備威脅" if f_color == "red" else "🟡 需注意" if f_color == "orange" else "🟢 低風險"
                 st.markdown(f"**🚦 FTO 燈號：** <span style='color:{f_color}; font-weight:bold; font-size:18px;'>{f_text}</span>", unsafe_allow_html=True)
@@ -304,7 +303,6 @@ with main_tab1:
             else:
                 st.success("⚡ 座標已鎖定！請體驗下方雙向連動。")
 
-        # 滿版 HTML 渲染
         if is_scanned:
             ai_visual_data = st.session_state.scanned_pages[str(target_page)]
             comp_dict_list = st.session_state.claim_data_t2.get("components", [])
@@ -389,8 +387,6 @@ with main_tab1:
             </html>
             """
             components.html(html_skeleton, height=820, scrolling=False)
-        else:
-            st.image(cropped_img, use_container_width=True)
 
 # ==========================================
 # ⚖️ Tab 2：智權法務審查中心 (IP)
@@ -574,6 +570,8 @@ with main_tab3:
                             c = "red" if "高" in p.get("威脅度", "") else "orange"
                             st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
                             st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"檔案讀取失敗，錯誤訊息：{e}")
 
 # ==========================================
 # 💡 Tab 4：研發專屬彈藥庫 (Excel)
