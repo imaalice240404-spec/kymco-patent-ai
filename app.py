@@ -219,10 +219,9 @@ with main_tab1:
     else:
         rd_data = st.session_state.rd_card_data
         
-        # 🌟 上半部：三卡並列 (完美還原附圖邏輯)
+        # 🌟 上半部：三卡並列
         col_c1, col_c2, col_c3 = st.columns(3)
         
-        # 【卡片 1：研發戰略看板】
         with col_c1:
             with st.container(border=True, height=450):
                 st.markdown(f"#### 🎯 研發戰略看板")
@@ -236,7 +235,6 @@ with main_tab1:
                 st.markdown(f"**💡 核心解法：** {rd_data.get('solution', '')}")
                 st.markdown(f"**🎯 應用場景：** {rd_data.get('application', '')}")
 
-        # 【卡片 2：自家技術 CheckBox】
         with col_c2:
             with st.container(border=True, height=450):
                 st.markdown("#### ⚔️ 自家技術 CheckBox 檢核")
@@ -249,7 +247,6 @@ with main_tab1:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 if len(risk_list) > 0:
-                    # 使用 HTML div 避開 st.error() 不能用 unsafe_allow_html 的問題
                     if checked_count == len(risk_list): 
                         st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 警告：特徵全中，高度侵權風險！</b></div>", unsafe_allow_html=True)
                     elif checked_count > 0: 
@@ -257,7 +254,6 @@ with main_tab1:
                     else: 
                         st.markdown("<div style='padding:10px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px;'><b>🎉 全數未命中，文義迴避成功。</b></div>", unsafe_allow_html=True)
 
-        # 【卡片 3：迴避設計建議方向】
         with col_c3:
             with st.container(border=True, height=450):
                 st.markdown("#### 🛡️ 迴避設計建議方向")
@@ -267,7 +263,7 @@ with main_tab1:
 
         st.markdown("---")
         
-        # 🌟 下半部：終極滿版雙向連動大屏 (移植自 V4 沙盒)
+        # 🌟 下半部：終極滿版雙向連動大屏
         st.markdown("### 🎯 終極雙向連動大屏")
         
         pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
@@ -295,16 +291,40 @@ with main_tab1:
                         try:
                             comp_dict_list = st.session_state.claim_data_t2.get("components", [])
                             known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
-                            prompt_vision = f'''這是一張專利圖。元件表：{known_comps_str}。找出圖片上所有標號的 相對座標(0.0~1.0)。輸出 JSON：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.45, "y_rel": 0.55}} ] }}'''
+                            
+                            # 🌟 強化防呆 Prompt：如果沒圖就輸出空 JSON
+                            prompt_vision = f'''
+                            這是一張專利圖。已知元件表：{known_comps_str}。
+                            請找出圖片上「所有肉眼可見的數字標號」，並估算其相對座標(0.0~1.0)。
+                            【重要防呆】：如果該頁「沒有任何圖形標號」或是「純文字頁」，請絕對只輸出空的陣列：{{ "hotspots": [] }}。
+                            不要有任何多餘的解釋文字。嚴格輸出 JSON 格式。
+                            範例：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.45, "y_rel": 0.55}} ] }}
+                            '''
+                            
                             response_vis = model.generate_content([cropped_img, prompt_vision])
-                            clean_text_vis = response_vis.text.replace('```json', '').replace('```', '').strip()
-                            clean_text_vis = clean_text_vis[clean_text_vis.find('{'):clean_text_vis.rfind('}')+1]
-                            ai_visual_data = json.loads(clean_text_vis).get("hotspots", [])
+                            
+                            if not response_vis.text:
+                                ai_visual_data = []
+                            else:
+                                clean_text_vis = response_vis.text.replace('```json', '').replace('```', '').strip()
+                                start_idx = clean_text_vis.find('{')
+                                end_idx = clean_text_vis.rfind('}')
+                                if start_idx != -1 and end_idx != -1:
+                                    clean_text_vis = clean_text_vis[start_idx:end_idx+1]
+                                    ai_visual_data = json.loads(clean_text_vis).get("hotspots", [])
+                                else:
+                                    ai_visual_data = [] # 找不到 JSON 結構視為空
+                                    
                             st.session_state.scanned_pages[str(target_page)] = ai_visual_data
                             st.rerun()
-                        except: st.error("視覺解析失敗。")
+                        except Exception as e: 
+                            # 將錯誤印出來方便除錯，並防止整個系統崩潰
+                            st.error(f"視覺解析失敗，可能是該頁面缺乏清晰圖形或 API 回應異常。詳細錯誤：{e}")
             else:
-                st.success("⚡ 座標已鎖定！請體驗下方雙向連動。")
+                if not st.session_state.scanned_pages[str(target_page)]:
+                    st.warning("⚡ 掃描完成，但此頁面未偵測到任何圖形標號。")
+                else:
+                    st.success("⚡ 座標已鎖定！請體驗下方雙向連動。")
 
         # 滿版 HTML 渲染
         if is_scanned:
@@ -391,8 +411,6 @@ with main_tab1:
             </html>
             """
             components.html(html_skeleton, height=820, scrolling=False)
-        else:
-            st.image(cropped_img, use_container_width=True)
 
 # ==========================================
 # ⚖️ Tab 2：智權法務審查中心 (IP)
@@ -506,7 +524,7 @@ with main_tab3:
                 st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
                 if abs_col and title_col and num_col:
                     analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", 1, min(len(df), 30), min(len(df), 15), key="slider_t3")
-                    if st.button("🚀 啟推雙軌解析", use_container_width=True, key="btn_mat_t3"):
+                    if st.button("🚀 啟動雙軌解析", use_container_width=True, key="btn_mat_t3"):
                         with st.spinner("交叉比對摘要與請求項..."):
                             try:
                                 sample_df = df.head(analyze_count)
