@@ -18,6 +18,7 @@ from PIL import Image, ImageOps
 # ==========================================
 st.set_page_config(page_title="機車專利 AI 戰情室 (四核心旗艦版)", layout="wide")
 
+# 👇 建立 API 鑰匙池
 api_keys = [
     st.secrets.get("GOOGLE_API_KEY_1", st.secrets.get("GOOGLE_API_KEY", "")),
     st.secrets.get("GOOGLE_API_KEY_2", st.secrets.get("GOOGLE_API_KEY", ""))
@@ -142,7 +143,6 @@ with st.container(border=True):
                             
                             is_utility_model = clean_num.upper().startswith('M')
                             
-                            # 🌟 您的原汁原味條件判定完整回歸
                             if is_utility_model:
                                 claim_analysis_prompt = '''
                                 【五、 🧱 具體結構特徵拆解 (Structural Features)】：
@@ -277,7 +277,6 @@ with main_tab1:
                     c_num = comp.get("id", "")
                     c_name = comp.get("name", "")
                     replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
-                    # 避免重複替換，進行簡單的安全替換
                     claim_text_full = claim_text_full.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
 
                 # 生成熱區 HTML
@@ -406,7 +405,6 @@ with main_tab2:
                     use_container_width=True
                 )
             with st.container(height=650, border=True):
-                # 這裡呈現的就是您 100% 原汁原味的 11 點分析，包含「破口」與「附屬項」！
                 st.markdown(st.session_state.ip_report_content)
         
         with ip_tab_claim:
@@ -448,7 +446,6 @@ with main_tab2:
                             for t in found_texts:
                                 hl_t = t.replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
                                 st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
-
 
 # ==========================================
 # 🗺️ Tab 3：宏觀專利大數據與競爭快篩
@@ -568,6 +565,9 @@ with main_tab3:
                             c = "red" if "高" in p.get("威脅度", "") else "orange"
                             st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
                             st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
+        
+        except Exception as e:
+            st.error(f"檔案讀取失敗，錯誤訊息：{e}")
 
 
 # ==========================================
