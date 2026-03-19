@@ -16,9 +16,8 @@ from PIL import Image, ImageOps
 # ==========================================
 # 🛑 核心配置與 API 初始化
 # ==========================================
-st.set_page_config(page_title="機車專利 AI 戰情室 (四核心旗艦版)", layout="wide")
+st.set_page_config(page_title="機車專利 AI 戰情室", layout="wide")
 
-# 👇 建立 API 鑰匙池
 api_keys = [
     st.secrets.get("GOOGLE_API_KEY_1", st.secrets.get("GOOGLE_API_KEY", "")),
     st.secrets.get("GOOGLE_API_KEY_2", st.secrets.get("GOOGLE_API_KEY", ""))
@@ -86,7 +85,7 @@ if not check_password():
 # ==========================================
 # 🚧 全局核心上傳與分析區
 # ==========================================
-st.title("🏍️ 機車專利 AI 戰略分析系統 (角色導向旗艦版)")
+st.title("🏍️ 機車專利 AI 戰略分析系統")
 st.markdown("---")
 
 with st.container(border=True):
@@ -165,8 +164,6 @@ with st.container(border=True):
                             【補充資訊】申請人：{applicant_main} / 目前法律狀態：{status_main} / 專利類型：{"新型專利" if is_utility_model else "發明專利"}
 
                             【🔴 輸出格式嚴格要求：純 JSON 格式】
-                            請將分析結果打包進 JSON 中。其中 "ip_report" 欄位請務必依照下方指定的格式與內容生成完整的排版文字。
-
                             {{
                               "rd_card": {{
                                 "title": "用一句話總結這項技術",
@@ -214,74 +211,115 @@ main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
 ])
 
 # ==========================================
-# 🧑‍💻 Tab 1：研發迴避設計大屏 (視覺化互動)
+# 🧑‍💻 Tab 1：研發迴避設計大屏 (理想排版實作)
 # ==========================================
 with main_tab1:
     if not st.session_state.rd_card_data or not st.session_state.pdf_bytes_main:
         st.info("請先於上方上傳 PDF 並啟動分析。")
     else:
         rd_data = st.session_state.rd_card_data
-        st.markdown(f"## 🎯 研發戰略看板：{rd_data.get('title', '未知技術')}")
         
-        col_v_img, col_v_rd_card = st.columns([1.6, 1])
+        # 🌟 上半部：三卡並列 (完美還原附圖邏輯)
+        col_c1, col_c2, col_c3 = st.columns(3)
         
-        # --- 左側：視覺化雙向連動 ---
-        with col_v_img:
-            st.markdown("### 🖼️ 視覺化特徵對應圖")
-            st.caption("✨ 滑鼠懸停右側藍色文字，圖片標號會發亮；滑鼠停在圖片標號，右側對應文字會亮起。")
-            
-            pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
-            total_pages_v = len(pdf_doc_v)
-
-            col_page, col_btn = st.columns([1, 1])
-            with col_page:
-                target_page = st.number_input(f"跳至圖紙頁碼 (共 {total_pages_v} 頁)", min_value=1, max_value=total_pages_v, value=min(2, total_pages_v), key="vis_page_rd")
-            
-            page = pdf_doc_v[target_page - 1]
-            raw_pil_img = page.render(scale=2.0).to_pil()
-            cropped_img = crop_white_margins(raw_pil_img) 
-            
-            img_byte_arr = io.BytesIO()
-            cropped_img.save(img_byte_arr, format='JPEG')
-            encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode()
-            img_uri = f"data:image/jpeg;base64,{encoded_img}"
-
-            is_scanned = str(target_page) in st.session_state.scanned_pages
-            with col_btn:
-                st.write("")
-                if not is_scanned:
-                    if st.button(f"🔍 啟動 AI 視覺圖形鎖定", use_container_width=True, key="btn_scan_rd"):
-                        with st.spinner("Gemini Vision 正在鎖定座標..."):
-                            try:
-                                comp_dict_list = st.session_state.claim_data_t2.get("components", [])
-                                known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
-                                prompt_vision = f'''這是一張專利圖。元件表：{known_comps_str}。找出圖片上所有標號的 相對座標(0.0~1.0)。輸出 JSON：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.45, "y_rel": 0.55}} ] }}'''
-                                response_vis = model.generate_content([cropped_img, prompt_vision])
-                                clean_text_vis = response_vis.text.replace('```json', '').replace('```', '').strip()
-                                clean_text_vis = clean_text_vis[clean_text_vis.find('{'):clean_text_vis.rfind('}')+1]
-                                ai_visual_data = json.loads(clean_text_vis).get("hotspots", [])
-                                st.session_state.scanned_pages[str(target_page)] = ai_visual_data
-                                st.rerun()
-                            except: st.error("視覺解析失敗。")
-                else:
-                    st.success("⚡ 圖紙座標鎖定完畢！")
-
-            if is_scanned:
-                ai_visual_data = st.session_state.scanned_pages[str(target_page)]
-                comp_dict_list = st.session_state.claim_data_t2.get("components", [])
+        # 【卡片 1：研發戰略看板】
+        with col_c1:
+            with st.container(border=True, height=420):
+                st.markdown(f"#### 🎯 研發戰略看板")
+                st.markdown(f"**{rd_data.get('title', '未知技術')}**")
                 
-                # 處理請求項文字
-                claim_lines = st.session_state.claim_data_t2.get("claims", [])
-                claim_text_full = "<br><br>".join(claim_lines)
-                for comp in comp_dict_list:
-                    c_num = comp.get("id", "")
-                    c_name = comp.get("name", "")
-                    replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
-                    claim_text_full = claim_text_full.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
+                # 修復之前的錯誤寫法，改用乾淨的 HTML 標籤
+                f_color = "red" if "🔴" in st.session_state.ip_report_content else "orange" if "🟡" in st.session_state.ip_report_content else "green"
+                f_text = "🔴 具備威脅" if f_color == "red" else "🟡 需注意" if f_color == "orange" else "🟢 低風險"
+                st.markdown(f"**🚦 FTO 燈號：** <span style='color:{f_color}; font-weight:bold; font-size:18px;'>{f_text}</span>", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown(f"**🔥 解決痛點：** {rd_data.get('problem', '')}")
+                st.markdown(f"**💡 核心解法：** {rd_data.get('solution', '')}")
+                st.markdown(f"**🎯 應用場景：** {rd_data.get('application', '')}")
 
-                # 生成熱區 HTML
-                hotspots_html = ""
-                for spot in ai_visual_data:
+        # 【卡片 2：自家技術 CheckBox】
+        with col_c2:
+            with st.container(border=True, height=420):
+                st.markdown("#### ⚔️ 自家技術 CheckBox 檢核")
+                st.caption("請確認我司目前設計是否具備以下「權利要求獨立項特徵」：")
+                risk_list = rd_data.get('risk_check', [])
+                checked_count = 0
+                for i, risk in enumerate(risk_list):
+                    if st.checkbox(f"{risk}", key=f"risk_c_{i}"): 
+                        checked_count += 1
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                if len(risk_list) > 0:
+                    if checked_count == len(risk_list): 
+                        st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 警告：特徵全中，高度侵權風險！</b></div>", unsafe_allow_html=True)
+                    elif checked_count > 0: 
+                        st.markdown(f"<div style='padding:10px; background-color:#fff8e1; color:#f57f17; border-radius:5px;'><b>注意：命中 {checked_count}/{len(risk_list)} 個特徵，具均等論風險。</b></div>", unsafe_allow_html=True)
+                    else: 
+                        st.markdown("<div style='padding:10px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px;'><b>🎉 全數未命中，文義迴避成功。</b></div>", unsafe_allow_html=True)
+
+        # 【卡片 3：迴避設計建議方向】
+        with col_c3:
+            with st.container(border=True, height=420):
+                st.markdown("#### 🛡️ 迴避設計建議方向")
+                st.caption("針對前述之限制特徵，建議研發之修改方向：")
+                for avoid in rd_data.get('design_avoid_rd', []):
+                    st.markdown(f"✅ {avoid}")
+
+        st.markdown("---")
+        
+        # 🌟 下半部：終極滿版雙向連動大屏
+        pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
+        total_pages_v = len(pdf_doc_v)
+
+        col_page, col_btn, _ = st.columns([1, 1, 3])
+        with col_page:
+            target_page = st.number_input(f"📄 跳至專利圖紙頁碼 (共 {total_pages_v} 頁)", min_value=1, max_value=total_pages_v, value=min(2, total_pages_v), key="vis_page_rd")
+        
+        page = pdf_doc_v[target_page - 1]
+        raw_pil_img = page.render(scale=2.0).to_pil()
+        cropped_img = crop_white_margins(raw_pil_img) 
+        
+        img_byte_arr = io.BytesIO()
+        cropped_img.save(img_byte_arr, format='JPEG')
+        encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode()
+        img_uri = f"data:image/jpeg;base64,{encoded_img}"
+
+        is_scanned = str(target_page) in st.session_state.scanned_pages
+        with col_btn:
+            st.write("")
+            if not is_scanned:
+                if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
+                    with st.spinner("Gemini Vision 正在鎖定座標..."):
+                        try:
+                            comp_dict_list = st.session_state.claim_data_t2.get("components", [])
+                            known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
+                            prompt_vision = f'''這是一張專利圖。元件表：{known_comps_str}。找出圖片上所有標號的 相對座標(0.0~1.0)。輸出 JSON：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.45, "y_rel": 0.55}} ] }}'''
+                            response_vis = model.generate_content([cropped_img, prompt_vision])
+                            clean_text_vis = response_vis.text.replace('```json', '').replace('```', '').strip()
+                            clean_text_vis = clean_text_vis[clean_text_vis.find('{'):clean_text_vis.rfind('}')+1]
+                            ai_visual_data = json.loads(clean_text_vis).get("hotspots", [])
+                            st.session_state.scanned_pages[str(target_page)] = ai_visual_data
+                            st.rerun()
+                        except: st.error("視覺解析失敗。")
+            else:
+                st.success("⚡ 座標已鎖定！請體驗下方雙向連動。")
+
+        # 滿版 HTML 渲染
+        if is_scanned:
+            ai_visual_data = st.session_state.scanned_pages[str(target_page)]
+            comp_dict_list = st.session_state.claim_data_t2.get("components", [])
+            claim_lines = st.session_state.claim_data_t2.get("claims", [])
+            claim_text_full = "<br><br>".join(claim_lines)
+            
+            for comp in comp_dict_list:
+                c_num = comp.get("id", "")
+                c_name = comp.get("name", "")
+                replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
+                claim_text_full = claim_text_full.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
+
+            hotspots_html = ""
+            for spot in ai_visual_data:
+                if spot['name'] != "未知":
                     hotspots_html += f"""
                     <div class="hotspot hotspot-marker-{spot['number']}" id="hotspot-{spot['number']}"
                          style="left: {spot['x_rel']*100}%; top: {spot['y_rel']*100}%;"
@@ -290,98 +328,69 @@ with main_tab1:
                     </div>
                     """
 
-                # 雙向連動 HTML
-                html_skeleton = f"""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                <style>
-                    body {{ margin: 0; font-family: sans-serif; background: #fff; }}
-                    .main-container {{ display: flex; height: 700px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }}
-                    .img-section {{ flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; display: flex; justify-content: center; align-items: flex-start; padding: 10px; }}
-                    .img-wrapper {{ position: relative; display: inline-block; }}
-                    .patent-img {{ max-width: 100%; height: auto; display: block; }}
-                    .hotspot {{ position: absolute; width: 35px; height: 35px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }}
-                    .hotspot:hover {{ background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }}
-                    .hotspot-active {{ background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }}
-                    #tooltip {{ display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }}
-                    .text-section {{ flex: 4; padding: 20px; overflow-y: auto; font-size: 15px; line-height: 1.8; color: #333; }}
-                    .comp-text {{ color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }}
-                    .highlight-active {{ background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }}
-                </style>
-                </head>
-                <body>
-                <div class="main-container">
-                    <div class="img-section" id="img-container">
-                        <div class="img-wrapper">
-                            <img src="{img_uri}" class="patent-img">
-                            {hotspots_html}
-                        </div>
-                        <div id="tooltip"></div>
+            html_skeleton = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+                body {{ margin: 0; font-family: sans-serif; background: #fff; }}
+                .main-container {{ display: flex; height: 800px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }}
+                .img-section {{ flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; display: flex; justify-content: center; align-items: flex-start; padding: 10px; }}
+                .img-wrapper {{ position: relative; display: inline-block; }}
+                .patent-img {{ max-width: 100%; height: auto; display: block; }}
+                .hotspot {{ position: absolute; width: 35px; height: 35px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }}
+                .hotspot:hover {{ background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }}
+                .hotspot-active {{ background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }}
+                #tooltip {{ display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }}
+                .text-section {{ flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }}
+                .comp-text {{ color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }}
+                .highlight-active {{ background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }}
+            </style>
+            </head>
+            <body>
+            <div class="main-container">
+                <div class="img-section" id="img-container">
+                    <div class="img-wrapper">
+                        <img src="{img_uri}" class="patent-img">
+                        {hotspots_html}
                     </div>
-                    <div class="text-section">
-                        <div style="font-weight:bold; color:#555; margin-bottom:10px;">📜 獨立項文義對應：</div>
-                        {claim_text_full}
-                    </div>
+                    <div id="tooltip"></div>
                 </div>
-                <script>
-                    const tooltip = document.getElementById('tooltip');
-                    function hoverImage(num, name) {{
-                        document.onmousemove = e => {{ tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }};
-                        tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; tooltip.style.display = 'block';
-                        document.querySelectorAll('.comp-' + num).forEach((el, i) => {{ el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({{behavior:'smooth', block:'center'}}); }});
-                    }}
-                    function leaveImage(num) {{
-                        document.onmousemove = null; tooltip.style.display = 'none';
-                        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active'));
-                    }}
-                    function hoverText(num) {{
-                        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active'));
-                        const hs = document.getElementById('hotspot-' + num);
-                        if(hs) {{ hs.classList.add('hotspot-active'); hs.scrollIntoView({{behavior:'smooth', block:'center'}}); }}
-                    }}
-                    function leaveText(num) {{
-                        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active'));
-                        const hs = document.getElementById('hotspot-' + num);
-                        if(hs) hs.classList.remove('hotspot-active');
-                    }}
-                </script>
-                </body>
-                </html>
-                """
-                components.html(html_skeleton, height=720, scrolling=False)
-            else:
-                st.image(cropped_img, use_container_width=True)
-
-        # --- 右側：RD 侵權風險判定卡 ---
-        with col_v_rd_card:
-            st.markdown("### 📋 侵權風險與迴避建議")
-            
-            with st.container(border=True):
-                f_color = "red" if "🔴" in st.session_state.ip_report_content else "orange" if "🟡" in st.session_state.ip_report_content else "green"
-                st.markdown(f"#### 🚦 FTO 燈號：<span style='color:{f_color};font-weight:bold;'>{ '🔴 具備威脅' if f_color=='red' else '🟡 需注意' if f_color=='orange' else '🟢 低風險' }</span>", unsafe_allow_html=True)
-                
-                st.markdown(f"**🔥 解決痛點：** {rd_data.get('problem', '')}")
-                st.markdown(f"**💡 核心解法：** {rd_data.get('solution', '')}")
-                st.markdown(f"**🎯 應用場景：** {rd_data.get('application', '')}")
-                
-            st.markdown("#### ⚔️ 自家技術 CheckBox 檢核")
-            st.caption("請確認我司目前設計是否具備以下「權利要求限制特徵」：")
-            with st.container(border=True):
-                risk_list = rd_data.get('risk_check', [])
-                checked_count = 0
-                for i, risk in enumerate(risk_list):
-                    if st.checkbox(f"{risk}", key=f"risk_{i}"): checked_count += 1
-                
-                if len(risk_list) > 0:
-                    if checked_count == len(risk_list): st.error("⚠️ 警告：特徵全中，高度侵權風險！")
-                    elif checked_count > 0: st.warning(f"注意：命中 {checked_count}/{len(risk_list)} 個特徵，具均等論風險。")
-                    else: st.success("🎉 目前全數未命中，文義迴避成功。")
-
-            st.markdown("#### 🛡️ 迴避設計建議方向")
-            with st.container(border=True):
-                for avoid in rd_data.get('design_avoid_rd', []):
-                    st.markdown(f"✅ {avoid}")
+                <div class="text-section">
+                    <div style="font-size:18px; font-weight:bold; color:#1e3a8a; border-bottom:2px solid #eee; padding-bottom:8px; margin-bottom:15px; position:sticky; top:0; background:white; z-index:10;">
+                        📜 獨立項文義對應 (雙向連動)
+                    </div>
+                    {claim_text_full}
+                </div>
+            </div>
+            <script>
+                const tooltip = document.getElementById('tooltip');
+                function hoverImage(num, name) {{
+                    document.onmousemove = e => {{ tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }};
+                    tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; tooltip.style.display = 'block';
+                    document.querySelectorAll('.comp-' + num).forEach((el, i) => {{ el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({{behavior:'smooth', block:'center'}}); }});
+                }}
+                function leaveImage(num) {{
+                    document.onmousemove = null; tooltip.style.display = 'none';
+                    document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active'));
+                }}
+                function hoverText(num) {{
+                    document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active'));
+                    const hs = document.getElementById('hotspot-' + num);
+                    if(hs) {{ hs.classList.add('hotspot-active'); hs.scrollIntoView({{behavior:'smooth', block:'center'}}); }}
+                }}
+                function leaveText(num) {{
+                    document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active'));
+                    const hs = document.getElementById('hotspot-' + num);
+                    if(hs) hs.classList.remove('hotspot-active');
+                }}
+            </script>
+            </body>
+            </html>
+            """
+            components.html(html_skeleton, height=820, scrolling=False)
+        else:
+            st.image(cropped_img, use_container_width=True)
 
 # ==========================================
 # ⚖️ Tab 2：智權法務審查中心 (IP)
@@ -565,10 +574,6 @@ with main_tab3:
                             c = "red" if "高" in p.get("威脅度", "") else "orange"
                             st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
                             st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
-        
-        except Exception as e:
-            st.error(f"檔案讀取失敗，錯誤訊息：{e}")
-
 
 # ==========================================
 # 💡 Tab 4：研發專屬彈藥庫 (Excel)
