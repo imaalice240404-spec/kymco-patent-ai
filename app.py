@@ -16,7 +16,7 @@ from PIL import Image, ImageOps
 # ==========================================
 # 🛑 核心配置與 API 初始化
 # ==========================================
-st.set_page_config(page_title="機車專利 AI 戰情室", layout="wide")
+st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
 
 api_keys = [
     st.secrets.get("GOOGLE_API_KEY_1", st.secrets.get("GOOGLE_API_KEY", "")),
@@ -224,7 +224,7 @@ with main_tab1:
         
         # 【卡片 1：研發戰略看板】
         with col_c1:
-            with st.container(border=True, height=420):
+            with st.container(border=True, height=450):
                 st.markdown(f"#### 🎯 研發戰略看板")
                 st.markdown(f"**{rd_data.get('title', '未知技術')}**")
                 
@@ -238,7 +238,7 @@ with main_tab1:
 
         # 【卡片 2：自家技術 CheckBox】
         with col_c2:
-            with st.container(border=True, height=420):
+            with st.container(border=True, height=450):
                 st.markdown("#### ⚔️ 自家技術 CheckBox 檢核")
                 st.caption("請確認我司目前設計是否具備以下「權利要求獨立項特徵」：")
                 risk_list = rd_data.get('risk_check', [])
@@ -249,6 +249,7 @@ with main_tab1:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 if len(risk_list) > 0:
+                    # 使用 HTML div 避開 st.error() 不能用 unsafe_allow_html 的問題
                     if checked_count == len(risk_list): 
                         st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 警告：特徵全中，高度侵權風險！</b></div>", unsafe_allow_html=True)
                     elif checked_count > 0: 
@@ -258,7 +259,7 @@ with main_tab1:
 
         # 【卡片 3：迴避設計建議方向】
         with col_c3:
-            with st.container(border=True, height=420):
+            with st.container(border=True, height=450):
                 st.markdown("#### 🛡️ 迴避設計建議方向")
                 st.caption("針對前述之限制特徵，建議研發之修改方向：")
                 for avoid in rd_data.get('design_avoid_rd', []):
@@ -266,7 +267,9 @@ with main_tab1:
 
         st.markdown("---")
         
-        # 🌟 下半部：終極滿版雙向連動大屏
+        # 🌟 下半部：終極滿版雙向連動大屏 (移植自 V4 沙盒)
+        st.markdown("### 🎯 終極雙向連動大屏")
+        
         pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
         total_pages_v = len(pdf_doc_v)
 
@@ -303,6 +306,7 @@ with main_tab1:
             else:
                 st.success("⚡ 座標已鎖定！請體驗下方雙向連動。")
 
+        # 滿版 HTML 渲染
         if is_scanned:
             ai_visual_data = st.session_state.scanned_pages[str(target_page)]
             comp_dict_list = st.session_state.claim_data_t2.get("components", [])
@@ -387,6 +391,8 @@ with main_tab1:
             </html>
             """
             components.html(html_skeleton, height=820, scrolling=False)
+        else:
+            st.image(cropped_img, use_container_width=True)
 
 # ==========================================
 # ⚖️ Tab 2：智權法務審查中心 (IP)
@@ -500,7 +506,7 @@ with main_tab3:
                 st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
                 if abs_col and title_col and num_col:
                     analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量", 1, min(len(df), 30), min(len(df), 15), key="slider_t3")
-                    if st.button("🚀 啟動雙軌解析", use_container_width=True, key="btn_mat_t3"):
+                    if st.button("🚀 啟推雙軌解析", use_container_width=True, key="btn_mat_t3"):
                         with st.spinner("交叉比對摘要與請求項..."):
                             try:
                                 sample_df = df.head(analyze_count)
