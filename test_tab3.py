@@ -194,7 +194,7 @@ with tab_ingest:
             st.success("✅ 本批次分析執行完畢！請檢查左側面板的成功/失敗數量。")
 
 # ==========================================
-# 模組二：研發知識庫與任務分發 (卡片式介面)
+# 模組二：研發知識庫與任務分發 (R&D 工作流完美版)
 # ==========================================
 with tab_dashboard:
     completed_df = st.session_state.master_db[st.session_state.master_db['狀態'] == 'COMPLETED']
@@ -204,6 +204,9 @@ with tab_dashboard:
     else:
         st.header("🔍 研發技術情報檢索 (R&D Filter Hub)")
         
+        # ---------------------------------------------------------
+        # 1. 檢索過濾器 (Filter Hub)
+        # ---------------------------------------------------------
         with st.container(border=True):
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
@@ -219,14 +222,14 @@ with tab_dashboard:
             col_f4, col_f5 = st.columns([1, 1])
             with col_f4:
                 companies = [c for c in completed_df['專利權人'].unique() if c and c != "未知"]
-                filter_company = st.multiselect("🏢 4. 競爭對手 (已自動收斂名稱)", companies, placeholder="可複選，例如：三陽工業, 光陽工業")
-            
+                filter_company = st.multiselect("🏢 4. 競爭對手", companies, placeholder="可複選，例如：三陽工業")
             with col_f5:
                 temp_dates = pd.to_datetime(completed_df['公開公告日'], errors='coerce')
                 min_val = temp_dates.min().date() if not pd.isna(temp_dates.min()) else datetime.date(2000, 1, 1)
                 max_val = temp_dates.max().date() if not pd.isna(temp_dates.max()) else datetime.date.today()
                 filter_date = st.date_input("📅 5. 公開/公告日區間", value=(min_val, max_val), min_value=min_val, max_value=max_val)
 
+        # 執行過濾邏輯
         filtered_df = completed_df.copy()
         if filter_main != "全部": filtered_df = filtered_df[filtered_df['五大類'] == filter_main]
         if filter_sub != "全部": filtered_df = filtered_df[filtered_df['次系統'] == filter_sub]
@@ -241,8 +244,38 @@ with tab_dashboard:
             mask = filtered_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
             filtered_df = filtered_df[mask]
 
-        st.info(f"✨ 檢索完成：共篩選出 **{len(filtered_df)}** 筆目標專利。請在下方卡片左側打勾以選取。")
+        st.info(f"✨ 檢索完成：共篩選出 **{len(filtered_df)}** 筆專利。")
 
+        # ---------------------------------------------------------
+        # 2. 宏觀與組合分析指令區 (Action Bar 置頂)
+        # ---------------------------------------------------------
+        # 動態計算目前有被「打勾」的專利數量
+        selected_ids = [k.split("chk_")[1] for k, v in st.session_state.items() if k.startswith("chk_") and v]
+        
+        col_act1, col_act2 = st.columns(2)
+        with col_act1:
+            # 傳統分析：直接針對上方過濾出來的 N 筆資料進行地圖繪製
+            if st.button(f"📊 傳統專利分析 (針對目前篩選的 {len(filtered_df)} 筆)", use_container_width=True, type="primary"):
+                st.session_state.target_macro_pool = filtered_df
+                st.toast("✅ 啟動宏觀專利地圖引擎...")
+                # 這裡未來接你的傳統分析代碼
+                
+        with col_act2:
+            # 組合分析：針對下方被打勾的資料
+            if st.button(f"⚔️ 組合核駁分析 (針對下方已勾選的 {len(selected_ids)} 筆)", use_container_width=True, type="secondary"):
+                if len(selected_ids) < 2:
+                    st.error("⚠️ 組合核駁至少需要在下方卡片勾選 2 篇專利！")
+                else:
+                    selected_patents_df = completed_df[completed_df['證書號'].isin(selected_ids) | completed_df['申請號'].isin(selected_ids)]
+                    st.session_state.target_combo_pool = selected_patents_df
+                    st.toast("✅ 啟動 AI 組合特務...")
+                    # 這裡未來接你的組合分析代碼
+
+        st.markdown("---")
+
+        # ---------------------------------------------------------
+        # 3. 專利情報卡片渲染 (內含單篇分析按鈕)
+        # ---------------------------------------------------------
         for _, p in filtered_df.iterrows():
             disp_id = p['證書號'] if p['證書號'] else p['申請號']
             
@@ -251,11 +284,8 @@ with tab_dashboard:
                 
                 with col_chk:
                     st.write("") 
-                    is_checked = st.checkbox("選取", key=f"chk_{disp_id}", value=(disp_id in st.session_state.selected_patents_set), label_visibility="collapsed")
-                    if is_checked:
-                        st.session_state.selected_patents_set.add(disp_id)
-                    else:
-                        st.session_state.selected_patents_set.discard(disp_id)
+                    # 勾選框的狀態會自動被 Streamlit 記住在 session_state["chk_專利號"] 裡面
+                    st.checkbox("選取", key=f"chk_{disp_id}", label_visibility="collapsed")
                 
                 with col_content:
                     status_color = "🟢" if "消滅" in p['案件狀態'] or "撤回" in p['案件狀態'] else "🟠"
@@ -272,44 +302,12 @@ with tab_dashboard:
                         st.markdown(f"**🎯 達成功效：**\n{p['達成功效']}")
                     
                     st.markdown(f"**💡 核心解法：**\n> {p['核心解法']}")
-
-        st.markdown("---")
-        selected_count = len(st.session_state.selected_patents_set)
-        
-        if selected_count == 0:
-            st.warning("👆 請從上方情報卡片勾選至少一篇專利，以啟動進階分析引擎。")
-        else:
-            st.success(f"🎯 鎖定目標：已選取 **{selected_count}** 篇專利！請指派分析任務：")
-            
-            selected_patents_df = completed_df[completed_df['證書號'].isin(st.session_state.selected_patents_set) | completed_df['申請號'].isin(st.session_state.selected_patents_set)]
-            
-            col_btn1, col_btn2, col_btn3 = st.columns(3)
-            
-            with col_btn1:
-                if st.button("📄 1. 進入單篇深度拆解", use_container_width=True, type="primary"):
-                    if selected_count > 1:
-                        st.error("⚠️ 單篇拆解建議一次勾選 1 篇喔！")
-                    else:
-                        st.session_state.target_single_patent = selected_patents_df.iloc[0].to_dict()
-                        st.balloons()
-                        st.toast("✅ 已載入單篇資料！準備呼叫單篇分析引擎...")
-                        
-            with col_btn2:
-                if st.button("📊 2. 傳統專利分析 (宏觀地圖)", use_container_width=True, type="primary"):
-                    if selected_count < 2:
-                        st.warning("⚠️ 建議勾選多篇專利以生成統計圖表！")
-                    else:
-                        st.session_state.target_macro_pool = selected_patents_df
-                        st.toast(f"✅ 已載入 {selected_count} 篇資料！準備呼叫地圖引擎...")
                     
-            with col_btn3:
-                if st.button("⚔️ 3. 組合核駁分析 (AI特務)", use_container_width=True, type="primary"):
-                    if selected_count < 2:
-                        st.error("⚠️ 組合核駁至少需要勾選 2 篇專利（引證一 + 引證二）！")
-                    else:
-                        st.session_state.target_combo_pool = selected_patents_df
-                        st.toast("✅ 已載入引證組合！啟動 Agent...")
-
+                    # 🌟 單篇分析按鈕直接嵌在卡片底部
+                    if st.button("📄 進入單篇深度拆解", key=f"btn_single_{disp_id}"):
+                        st.session_state.target_single_patent = p.to_dict()
+                        st.toast(f"✅ 已載入 [{disp_id}]！準備呼叫單篇分析引擎...")
+                        # 這裡未來接你的單篇分析代碼
 # ==========================================
 # 模組三：無效化特務 (Agentic Search)
 # ==========================================
