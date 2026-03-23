@@ -135,7 +135,10 @@ with tab_ingest:
 with tab_dashboard:
     completed_df = st.session_state.master_db[st.session_state.master_db['狀態'] == 'COMPLETED']
     
-    if not completed_df.empty:
+    # 🌟 加上這個防呆判斷
+    if completed_df.empty:
+        st.warning("⚠️ 目前資料庫中沒有「已完成分析」的專利。請先至【模組一】上傳 Excel 並啟動 AI 探勘管線！")
+    else:
         col_f1, col_f2, col_f3 = st.columns(3)
         with col_f1:
             filter_main = st.selectbox("📂 1. 選擇大系統", ["全部"] + list(completed_df['五大類'].unique()))
