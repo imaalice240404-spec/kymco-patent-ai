@@ -9,7 +9,9 @@ import pandas as pd
 import numpy as np
 import re
 
+# ==========================================
 # 👇 1. 建立 API 鑰匙池與初始化設定
+# ==========================================
 api_keys = [
     st.secrets.get("GOOGLE_API_KEY_1", st.secrets.get("GOOGLE_API_KEY", "")),
     st.secrets.get("GOOGLE_API_KEY_2", st.secrets.get("GOOGLE_API_KEY", ""))
@@ -27,7 +29,7 @@ if 'master_db' not in st.session_state:
         '狀態', '五大類', '次系統', '特殊機構', '達成功效', '核心解法'
     ])
 
-# 🌟 初始化：購物車勾選狀態追蹤
+# 🌟 初始化：購物車勾選狀態
 if 'selected_patents_set' not in st.session_state:
     st.session_state.selected_patents_set = set()
 
@@ -44,14 +46,12 @@ def clean_assignee(name):
     """將冗長的專利權人名稱收斂 (去除股份公司與地址)"""
     name = safe_str(name)
     if not name: return "未知"
-    # 以常見的公司後綴進行切割，只取前面的主體名稱
     name = re.split(r'股份有限公司|有限公司|公司', name)[0].strip()
-    # 如果有多個申請人(通常用空白隔開)，這裡簡單取第一個作為主分類
     name = name.split(' ')[0].strip() 
     return name if name else "未知"
 
 # ==========================================
-# 🛠️ 開發者工具箱 (側邊欄)
+# 🛠️ 開發者工具箱 (側邊欄) - 救援卡頓與監控錯誤
 # ==========================================
 with st.sidebar:
     st.markdown("### 🛠️ 系統狀態與除錯")
@@ -61,11 +61,14 @@ with st.sidebar:
     if total_records > 0:
         pending_count = len(st.session_state.master_db[st.session_state.master_db['狀態'] == 'PENDING'])
         completed_count = len(st.session_state.master_db[st.session_state.master_db['狀態'] == 'COMPLETED'])
+        failed_count = len(st.session_state.master_db[st.session_state.master_db['狀態'] == 'FAILED'])
+        
         st.write(f"⏳ 等待分析 (PENDING): {pending_count}")
         st.write(f"✅ 分析完成 (COMPLETED): {completed_count}")
+        st.write(f"❌ 分析失敗 (FAILED): {failed_count}") # 🌟 抓出死掉的資料
         
     st.markdown("---")
-    if st.button("🗑️ 清空並重置資料庫", use_container_width=True):
+    if st.button("🗑️ 清空並重置資料庫 (遇到問題按這個)", use_container_width=True):
         st.session_state.master_db = pd.DataFrame(columns=st.session_state.master_db.columns)
         st.session_state.selected_patents_set = set()
         st.rerun()
@@ -108,14 +111,12 @@ with tab_ingest:
                 cert_val = safe_str(row[col_map['cert_num']]) if col_map['cert_num'] else ""
                 p_id = app_val if app_val else cert_val
                 
-                if not p_id or p_id == "nan":
-                    continue 
+                if not p_id or p_id == "nan": continue 
                     
                 if p_id in st.session_state.master_db['申請號'].values or p_id in st.session_state.master_db['證書號'].values:
                     skip_records += 1
                     continue
                 
-                # 🌟 在匯入時直接清洗專利權人名稱
                 raw_assignee = safe_str(row[col_map['assignee']]) if col_map['assignee'] else ""
                 clean_name = clean_assignee(raw_assignee)
                 
@@ -123,7 +124,7 @@ with tab_ingest:
                     '申請號': app_val,
                     '證書號': cert_val,
                     '公開公告日': safe_str(row[col_map['date']]) if col_map['date'] else "未知",
-                    '專利權人': clean_name, # 寫入乾淨的名稱
+                    '專利權人': clean_name,
                     '專利名稱': safe_str(row[col_map['title']]) if col_map['title'] else "無名稱",
                     '摘要': safe_str(row[col_map['abs']]).replace('\n', '')[:250] if col_map['abs'] else "無摘要",
                     '請求項': safe_str(row[col_map['claim']]).replace('\n', '')[:300] if col_map['claim'] else "無請求項",
@@ -137,21 +138,22 @@ with tab_ingest:
             st.success(f"✅ 匯入完成！成功提取 {new_records} 筆新資料，跳過 {skip_records} 筆重複資料。")
 
     st.markdown("---")
-    st.header("2. AI 批次特徵萃取 (嚴謹樹狀分類)")
+    st.header("2. AI 批次特徵萃取 (具備防擋煞車系統)")
     
     pending_df = st.session_state.master_db[st.session_state.master_db['狀態'] == 'PENDING']
     
     if len(pending_df) > 0:
         st.info(f"⏳ 目前有 **{len(pending_df)}** 筆專利等待 AI 萃取特徵。")
-        batch_size = st.slider("選擇本次交給 AI 處理的筆數", 1, min(50, len(pending_df)), min(10, len(pending_df)))
+        batch_size = st.slider("選擇本次交給 AI 處理的筆數 (建議每次 10-20 筆)", 1, min(50, len(pending_df)), min(5, len(pending_df)))
         
         if st.button(f"🤖 啟動高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
             process_df = pending_df.head(batch_size)
             progress_bar = st.progress(0)
             status_text = st.empty()
+            error_log = st.empty() # 🌟 用來顯示真實錯誤原因的區塊
 
             for i, (idx, row) in enumerate(process_df.iterrows()):
-                status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']}")
+                status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 prompt = f"""
                 你是一位機車廠的資深研發總監。請閱讀以下專利，並進行嚴格的技術拆解。
                 【名稱】：{row['專利名稱']}
@@ -179,14 +181,17 @@ with tab_ingest:
                     st.session_state.master_db.at[idx, '達成功效'] = result.get('達成功效', '')
                     st.session_state.master_db.at[idx, '核心解法'] = result.get('核心解法', '')
                     st.session_state.master_db.at[idx, '狀態'] = 'COMPLETED'
+                    
                 except Exception as e:
                     st.session_state.master_db.at[idx, '狀態'] = 'FAILED'
+                    # 🌟 抓出靜默失敗的真兇並印在畫面上
+                    error_log.error(f"❌ [{row['專利名稱']}] 分析失敗: {e}")
                 
                 progress_bar.progress((i + 1) / batch_size)
+                # 🌟 絕對關鍵的煞車系統：強迫程式休息，防止 Google API 封鎖
+                time.sleep(2) 
             
-            st.success("✅ 本批次分析完成！請切換至【模組二】查看結果。")
-            time.sleep(1)
-            st.rerun()
+            st.success("✅ 本批次分析執行完畢！請檢查左側面板的成功/失敗數量。")
 
 # ==========================================
 # 模組二：研發知識庫與任務分發 (卡片式介面)
@@ -199,7 +204,6 @@ with tab_dashboard:
     else:
         st.header("🔍 研發技術情報檢索 (R&D Filter Hub)")
         
-        # --- 1. 檢索設定區 ---
         with st.container(border=True):
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
@@ -223,7 +227,6 @@ with tab_dashboard:
                 max_val = temp_dates.max().date() if not pd.isna(temp_dates.max()) else datetime.date.today()
                 filter_date = st.date_input("📅 5. 公開/公告日區間", value=(min_val, max_val), min_value=min_val, max_value=max_val)
 
-        # --- 2. 執行過濾 ---
         filtered_df = completed_df.copy()
         if filter_main != "全部": filtered_df = filtered_df[filtered_df['五大類'] == filter_main]
         if filter_sub != "全部": filtered_df = filtered_df[filtered_df['次系統'] == filter_sub]
@@ -240,17 +243,14 @@ with tab_dashboard:
 
         st.info(f"✨ 檢索完成：共篩選出 **{len(filtered_df)}** 筆目標專利。請在下方卡片左側打勾以選取。")
 
-        # --- 3. 渲染情報卡片與 Checkbox ---
         for _, p in filtered_df.iterrows():
             disp_id = p['證書號'] if p['證書號'] else p['申請號']
             
             with st.container(border=True):
-                # 🌟 將卡片切為「勾選區」與「內容區」
                 col_chk, col_content = st.columns([0.5, 9.5])
                 
                 with col_chk:
-                    st.write("") # 稍微往下推對齊標題
-                    # Checkbox 狀態與 session_state.selected_patents_set 綁定
+                    st.write("") 
                     is_checked = st.checkbox("選取", key=f"chk_{disp_id}", value=(disp_id in st.session_state.selected_patents_set), label_visibility="collapsed")
                     if is_checked:
                         st.session_state.selected_patents_set.add(disp_id)
@@ -273,7 +273,6 @@ with tab_dashboard:
                     
                     st.markdown(f"**💡 核心解法：**\n> {p['核心解法']}")
 
-        # --- 4. 懸浮/底部的行動指令列 ---
         st.markdown("---")
         selected_count = len(st.session_state.selected_patents_set)
         
@@ -282,7 +281,6 @@ with tab_dashboard:
         else:
             st.success(f"🎯 鎖定目標：已選取 **{selected_count}** 篇專利！請指派分析任務：")
             
-            # 從 master_db 中抓回被選取的完整資料
             selected_patents_df = completed_df[completed_df['證書號'].isin(st.session_state.selected_patents_set) | completed_df['申請號'].isin(st.session_state.selected_patents_set)]
             
             col_btn1, col_btn2, col_btn3 = st.columns(3)
