@@ -2,11 +2,13 @@ import os
 import json
 import random
 import time
+import datetime
 import streamlit as st
 import google.generativeai as genai
 import pandas as pd
+import numpy as np
 
-# 👇 建立 API 鑰匙池
+# 👇 1. 建立 API 鑰匙池與初始化設定
 api_keys = [
     st.secrets.get("GOOGLE_API_KEY_1", st.secrets.get("GOOGLE_API_KEY", "")),
     st.secrets.get("GOOGLE_API_KEY_2", st.secrets.get("GOOGLE_API_KEY", ""))
@@ -26,17 +28,41 @@ if 'master_db' not in st.session_state:
 
 st.set_page_config(page_title="機車專利大數據戰略中心", layout="wide")
 
+# 安全讀取字串的輔助函數
+def safe_str(val):
+    if pd.isna(val): return ""
+    return str(val).strip()
+
+# ==========================================
+# 🛠️ 開發者工具箱 (側邊欄) - 救援卡頓的神器
+# ==========================================
+with st.sidebar:
+    st.markdown("### 🛠️ 系統狀態與除錯")
+    total_records = len(st.session_state.master_db)
+    st.info(f"🗄️ 總資料筆數: {total_records}")
+    
+    if total_records > 0:
+        pending_count = len(st.session_state.master_db[st.session_state.master_db['狀態'] == 'PENDING'])
+        completed_count = len(st.session_state.master_db[st.session_state.master_db['狀態'] == 'COMPLETED'])
+        st.write(f"⏳ 等待分析 (PENDING): {pending_count}")
+        st.write(f"✅ 分析完成 (COMPLETED): {completed_count}")
+        
+    st.markdown("---")
+    if st.button("🗑️ 清空並重置資料庫 (遇到 Bug 按這個)", use_container_width=True):
+        st.session_state.master_db = pd.DataFrame(columns=st.session_state.master_db.columns)
+        st.rerun()
+
 st.title("🏍️ 機車專利大數據戰略中心")
 
-# 🌟 建立三大核心模組的 Tab
+# 建立三大核心模組的 Tab
 tab_ingest, tab_dashboard, tab_agent = st.tabs([
     "📥 模組一：自動探勘與資料匯入", 
-    "📊 模組二：研發知識庫 (無 IPC 純淨版)", 
+    "📊 模組二：研發知識庫與任務分發", 
     "🕵️ 模組三：無效化特務 (Agentic Search)"
 ])
 
 # ==========================================
-# 模組一：自動探勘與資料匯入 (維持原樣，但移除 IPC 解析)
+# 模組一：自動探勘與資料匯入 
 # ==========================================
 with tab_ingest:
     st.header("1. TWPAT 資料匯入")
@@ -46,56 +72,69 @@ with tab_ingest:
         if st.button("🔄 執行資料比對與匯入", type="primary"):
             df = pd.read_csv(uploaded_excel) if uploaded_excel.name.endswith('.csv') else pd.read_excel(uploaded_excel)
             
+            # 智能映射 TWPAT 欄位
             col_map = {
-                'title': next((c for c in df.columns if '專利名稱' in c or '標題' in c), None),
+                'title': next((c for c in df.columns if '名稱' in c or '標題' in c), None),
                 'abs': next((c for c in df.columns if '摘要' in c), None),
-                'claim': next((c for c in df.columns if '申請專利範圍' in c or '請求項' in c), None),
+                'claim': next((c for c in df.columns if '範圍' in c or '請求' in c), None),
                 'app_num': next((c for c in df.columns if '申請號' in c), None),
-                'cert_num': next((c for c in df.columns if '證書號' in c or '公告號' in c), None),
-                'date': next((c for c in df.columns if '公開日' in c or '公告日' in c), None),
-                'assignee': next((c for c in df.columns if '專利權人' in c or '申請人' in c), None),
-                'status': next((c for c in df.columns if '案件狀態' in c or '法律狀態' in c), None)
+                'cert_num': next((c for c in df.columns if '證書' in c or '公告號' in c or '公開號' in c), None),
+                'date': next((c for c in df.columns if '日' in c and ('公開' in c or '公告' in c)), None),
+                'assignee': next((c for c in df.columns if '權人' in c or '申請人' in c), None),
+                'status': next((c for c in df.columns if '狀態' in c), None)
             }
 
-            if col_map['app_num'] or col_map['cert_num']:
-                new_records = 0
-                skip_records = 0
+            new_records = 0
+            skip_records = 0
+            
+            for _, row in df.iterrows():
+                app_val = safe_str(row[col_map['app_num']]) if col_map['app_num'] else ""
+                cert_val = safe_str(row[col_map['cert_num']]) if col_map['cert_num'] else ""
+                p_id = app_val if app_val else cert_val
                 
-                for _, row in df.iterrows():
-                    p_id = str(row[col_map['app_num']]) if col_map['app_num'] and pd.notna(row[col_map['app_num']]) else str(row[col_map['cert_num']])
+                if not p_id or p_id == "nan":
+                    continue 
                     
-                    if p_id in st.session_state.master_db['申請號'].values or p_id in st.session_state.master_db['證書號'].values:
-                        skip_records += 1
-                        continue
-                    
-                    new_row = {
-                        '申請號': str(row[col_map['app_num']]) if col_map['app_num'] else "",
-                        '證書號': str(row[col_map['cert_num']]) if col_map['cert_num'] else "",
-                        '公開公告日': str(row[col_map['date']]) if col_map['date'] else "未知",
-                        '專利權人': str(row[col_map['assignee']]) if col_map['assignee'] else "未知",
-                        '專利名稱': str(row[col_map['title']]) if col_map['title'] else "無",
-                        '摘要': str(row[col_map['abs']]).replace('\n', '')[:250] if col_map['abs'] else "無",
-                        '請求項': str(row[col_map['claim']]).replace('\n', '')[:300] if col_map['claim'] else "無",
-                        '案件狀態': str(row[col_map['status']]) if col_map['status'] else "未知",
-                        '狀態': 'PENDING',
-                        '五大類': '', '次系統': '', '特殊機構': '', '達成功效': '', '核心解法': ''
-                    }
-                    st.session_state.master_db = pd.concat([st.session_state.master_db, pd.DataFrame([new_row])], ignore_index=True)
-                    new_records += 1
+                # 檢查是否已存在
+                if p_id in st.session_state.master_db['申請號'].values or p_id in st.session_state.master_db['證書號'].values:
+                    skip_records += 1
+                    continue
                 
-                st.success(f"✅ 匯入完成！新增 {new_records} 筆資料，跳過 {skip_records} 筆重複資料。")
+                new_row = {
+                    '申請號': app_val,
+                    '證書號': cert_val,
+                    '公開公告日': safe_str(row[col_map['date']]) if col_map['date'] else "未知",
+                    '專利權人': safe_str(row[col_map['assignee']]) if col_map['assignee'] else "未知",
+                    '專利名稱': safe_str(row[col_map['title']]) if col_map['title'] else "無名稱",
+                    '摘要': safe_str(row[col_map['abs']]).replace('\n', '')[:250] if col_map['abs'] else "無摘要",
+                    '請求項': safe_str(row[col_map['claim']]).replace('\n', '')[:300] if col_map['claim'] else "無請求項",
+                    '案件狀態': safe_str(row[col_map['status']]) if col_map['status'] else "未知",
+                    '狀態': 'PENDING',
+                    '五大類': '', '次系統': '', '特殊機構': '', '達成功效': '', '核心解法': ''
+                }
+                st.session_state.master_db = pd.concat([st.session_state.master_db, pd.DataFrame([new_row])], ignore_index=True)
+                new_records += 1
+            
+            st.success(f"✅ 匯入完成！成功提取 {new_records} 筆新資料，跳過 {skip_records} 筆重複資料。")
 
     st.markdown("---")
     st.header("2. AI 批次特徵萃取 (嚴謹樹狀分類)")
+    
     pending_df = st.session_state.master_db[st.session_state.master_db['狀態'] == 'PENDING']
     
     if len(pending_df) > 0:
-        if st.button(f"🤖 啟動高階探勘管線 (共 {len(pending_df)} 筆等待中)", type="primary"):
+        st.info(f"⏳ 目前有 **{len(pending_df)}** 筆專利等待 AI 萃取特徵。下方為前 5 筆預覽：")
+        st.dataframe(pending_df[['申請號', '專利名稱', '專利權人', '狀態']].head(5))
+        
+        batch_size = st.slider("選擇本次交給 AI 處理的筆數 (避免 API Timeout)", 1, min(50, len(pending_df)), min(10, len(pending_df)))
+        
+        if st.button(f"🤖 啟動高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
+            process_df = pending_df.head(batch_size)
             progress_bar = st.progress(0)
             status_text = st.empty()
 
-            for i, (idx, row) in enumerate(pending_df.iterrows()):
-                status_text.text(f"正在分析: {row['專利名稱']}")
+            for i, (idx, row) in enumerate(process_df.iterrows()):
+                status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']}")
                 prompt = f"""
                 你是一位機車廠的資深研發總監。請閱讀以下專利，並進行嚴格的技術拆解。
                 【名稱】：{row['專利名稱']}
@@ -126,120 +165,138 @@ with tab_ingest:
                 except Exception as e:
                     st.session_state.master_db.at[idx, '狀態'] = 'FAILED'
                 
-                progress_bar.progress((i + 1) / len(pending_df))
+                progress_bar.progress((i + 1) / batch_size)
+            
+            st.success("✅ 本批次分析完成！請切換至【模組二】查看結果。")
+            time.sleep(1)
             st.rerun()
+    else:
+        st.write("✅ 目前沒有需要分析的資料。請上傳 Excel 匯入新專利。")
 
 # ==========================================
-# 模組二：研發知識庫 (拔除 IPC，聚焦核心解法)
+# 模組二：研發知識庫與任務分發 (檢索 + 購物車)
 # ==========================================
 with tab_dashboard:
     completed_df = st.session_state.master_db[st.session_state.master_db['狀態'] == 'COMPLETED']
     
-    # 🌟 加上這個防呆判斷
     if completed_df.empty:
-        st.warning("⚠️ 目前資料庫中沒有「已完成分析」的專利。請先至【模組一】上傳 Excel 並啟動 AI 探勘管線！")
+        st.warning("⚠️ 目前資料庫中沒有「已完成分析」的專利。請先至【模組一】啟動 AI 探勘管線！")
     else:
-        col_f1, col_f2, col_f3 = st.columns(3)
-        with col_f1:
-            filter_main = st.selectbox("📂 1. 選擇大系統", ["全部"] + list(completed_df['五大類'].unique()))
-        with col_f2:
-            sub_options = ["全部"]
-            if filter_main != "全部":
-                sub_options += list(completed_df[completed_df['五大類'] == filter_main]['次系統'].unique())
-            filter_sub = st.selectbox("⚙️ 2. 選擇次系統", sub_options)
-        with col_f3:
-            search_query = st.text_input("🎯 3. 關鍵字 (找對手/痛點/機構)")
+        st.header("🔍 研發技術情報檢索 (R&D Filter Hub)")
+        st.markdown("媲美 TWPAT 但更純粹的過濾系統，勾選目標後即可發送至各大分析引擎。")
+        
+        # --- 1. 檢索設定區 ---
+        with st.container(border=True):
+            st.markdown("#### 🎯 核心檢索條件")
+            
+            col_f1, col_f2, col_f3 = st.columns(3)
+            with col_f1:
+                filter_main = st.selectbox("📂 1. 大系統", ["全部"] + list(completed_df['五大類'].unique()))
+            with col_f2:
+                sub_options = ["全部"]
+                if filter_main != "全部":
+                    sub_options += list(completed_df[completed_df['五大類'] == filter_main]['次系統'].unique())
+                filter_sub = st.selectbox("⚙️ 2. 次系統", sub_options)
+            with col_f3:
+                search_query = st.text_input("🔑 3. 關鍵字 (找痛點/機構)")
 
+            col_f4, col_f5 = st.columns([1, 1])
+            with col_f4:
+                companies = [c for c in completed_df['專利權人'].unique() if c and c != "未知"]
+                filter_company = st.multiselect("🏢 4. 競爭對手 (專利權人)", companies, placeholder="可複選，例如：光陽, 三陽, HONDA")
+            
+            with col_f5:
+                # 日期安全處理
+                temp_dates = pd.to_datetime(completed_df['公開公告日'], errors='coerce')
+                min_val = temp_dates.min().date() if not pd.isna(temp_dates.min()) else datetime.date(2000, 1, 1)
+                max_val = temp_dates.max().date() if not pd.isna(temp_dates.max()) else datetime.date.today()
+                
+                filter_date = st.date_input("📅 5. 公開/公告日區間", 
+                                          value=(min_val, max_val),
+                                          min_value=min_val, 
+                                          max_value=max_val)
+
+        # --- 2. 執行過濾邏輯 ---
         filtered_df = completed_df.copy()
+        
         if filter_main != "全部":
             filtered_df = filtered_df[filtered_df['五大類'] == filter_main]
         if filter_sub != "全部":
             filtered_df = filtered_df[filtered_df['次系統'] == filter_sub]
+        if filter_company:
+            mask = filtered_df['專利權人'].apply(lambda x: any(c in str(x) for c in filter_company))
+            filtered_df = filtered_df[mask]
+        if len(filter_date) == 2:
+            start_date, end_date = filter_date
+            valid_date_mask = pd.to_datetime(filtered_df['公開公告日'], errors='coerce').dt.date.between(start_date, end_date)
+            filtered_df = filtered_df[valid_date_mask | (filtered_df['公開公告日'] == "未知")]
         if search_query:
             mask = filtered_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
             filtered_df = filtered_df[mask]
-        
-        for _, p in filtered_df.iterrows():
-            with st.container(border=True):
-                status_color = "🟢" if "消滅" in p['案件狀態'] or "撤回" in p['案件狀態'] else "🟠"
-                disp_id = p['證書號'] if p['證書號'] else p['申請號']
-                st.markdown(f"#### {status_color} [{disp_id}] {p['專利名稱']}")
+
+        st.info(f"✨ 檢索完成：共篩選出 **{len(filtered_df)}** 筆目標專利。")
+
+        # --- 3. 專利購物車 ( Interactive Data Editor ) ---
+        if not filtered_df.empty:
+            st.markdown("### 🛒 勾選目標進入進階分析")
+            
+            display_cols = ['證書號', '專利名稱', '專利權人', '公開公告日', '五大類', '次系統']
+            display_df = filtered_df[display_cols].copy()
+            display_df.insert(0, "☑️ 選取", False)
+
+            edited_df = st.data_editor(
+                display_df,
+                column_config={
+                    "☑️ 選取": st.column_config.CheckboxColumn("勾選", default=False),
+                    "證書號": st.column_config.TextColumn("專利號", width="medium"),
+                    "專利名稱": st.column_config.TextColumn("專利名稱", width="large"),
+                },
+                disabled=display_cols, 
+                hide_index=True,
+                use_container_width=True,
+                height=min(400, (len(display_df) + 1) * 35 + 3) 
+            )
+
+            # --- 4. 行動指令列 ( Action Bar ) ---
+            selected_ids = edited_df[edited_df["☑️ 選取"] == True]['證書號'].tolist()
+            selected_patents = filtered_df[filtered_df['證書號'].isin(selected_ids)]
+
+            st.markdown("---")
+            if selected_patents.empty:
+                st.warning("👆 請從上方列表勾選至少一篇專利，以啟動進階分析引擎。")
+            else:
+                st.success(f"🎯 鎖定目標：已選取 **{len(selected_patents)}** 篇專利！請指派分析任務：")
                 
-                # 拿掉 IPC，介面更乾淨
-                st.caption(f"**🏢 權利人:** {p['專利權人']} ｜ **📅 日期:** {p['公開公告日']} ｜ **⚖️ 狀態:** {p['案件狀態']}")
-                st.markdown("---")
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
                 
-                col_t1, col_t2, col_t3 = st.columns([1.5, 1.5, 2])
-                with col_t1:
-                    st.markdown(f"**📂 分類：**\n{p['五大類']} ➡️ {p['次系統']}")
-                with col_t2:
-                    st.markdown(f"**⚙️ 特殊機構：**\n{p['特殊機構']}")
-                with col_t3:
-                    st.markdown(f"**🎯 達成功效：**\n{p['達成功效']}")
-                
-                st.markdown(f"**💡 核心解法：**\n> {p['核心解法']}")
-                if st.button(f"進入單篇深度拆解 ➡️", key=f"btn_{disp_id}"):
-                    st.toast(f"即將載入 {disp_id} 的詳細圖面與全要件比對")
+                with col_btn1:
+                    if st.button("📄 1. 進入單篇深度拆解", use_container_width=True):
+                        if len(selected_patents) > 1:
+                            st.error("⚠️ 單篇拆解建議一次勾選 1 篇喔！請取消多餘的勾選。")
+                        else:
+                            st.session_state.target_single_patent = selected_patents.iloc[0].to_dict()
+                            st.balloons()
+                            st.toast("✅ 已載入單篇資料！準備呼叫單篇分析引擎...")
+                            
+                with col_btn2:
+                    if st.button("📊 2. 傳統專利分析 (儀表板)", use_container_width=True):
+                        if len(selected_patents) < 2:
+                            st.warning("⚠️ 建議勾選多篇專利以生成統計圖表！")
+                        else:
+                            st.session_state.target_macro_pool = selected_patents
+                            st.toast(f"✅ 已載入 {len(selected_patents)} 篇資料！準備呼叫地圖引擎...")
+                        
+                with col_btn3:
+                    if st.button("⚔️ 3. 組合核駁分析 (AI特務)", use_container_width=True):
+                        if len(selected_patents) < 2:
+                            st.error("⚠️ 組合核駁至少需要勾選 2 篇專利（引證一 + 引證二）！")
+                        else:
+                            st.session_state.target_combo_pool = selected_patents
+                            st.toast("✅ 已載入引證組合！啟動 Agent...")
 
 # ==========================================
-# 模組三：無效化特務 (Agentic Invalidation Search)
+# 模組三：無效化特務 (Agentic Search)
 # ==========================================
 with tab_agent:
     st.header("🕵️ 自主前案檢索與無效化特務")
-    st.markdown("輸入敵方高威脅專利的請求項，AI 將自動進行「思維鏈推導 ➡️ 生成檢索式 ➡️ 迭代過濾 ➡️ 產出對比」，尋找可用的前案。")
-    
-    target_claim = st.text_area("🎯 貼上敵方目標請求項 (Target Claim)", height=150, placeholder="例如：一種機車冷卻系統，包含：一水冷排，設置於腳踏板下方；一導風罩，連接於該水冷排...")
-    
-    if st.button("🚀 啟動無效化特務 (Agent Start)", type="primary"):
-        if target_claim:
-            # 使用 st.status 呈現 Agent 的運作軌跡
-            with st.status("特務正在執行自主檢索迴圈...", expanded=True) as status:
-                
-                # Step 1: 思考與解析
-                st.write("🧠 **[Thought]** 讀取請求項，解析關鍵技術特徵與限制條件...")
-                time.sleep(1.5) # 模擬運算時間
-                st.info("提取特徵：`水冷排位置`, `踏板底部`, `導風罩角度`")
-                
-                # Step 2: 首次行動 (生成布林邏輯)
-                st.write("🛠️ **[Action 1]** 正在建構初代布林邏輯檢索式並呼叫專利資料庫 API...")
-                time.sleep(1.5)
-                st.code("Query: (水冷排 OR 散熱器) AND (踏板 OR 底部)", language="sql")
-                
-                # Step 3: 觀察結果並反思
-                st.write("👁️ **[Observation]** 取得 25 篇初步結果。分析摘要後發現大量汽車底盤散熱專利，領域不符，雜訊過高。")
-                time.sleep(1.5)
-                
-                # Step 4: 自主迭代修正
-                st.write("🧠 **[Thought 2]** 需要縮小範圍，排除汽車領域，並加入引導氣流的機構特徵。")
-                time.sleep(1.5)
-                
-                # Step 5: 二次行動
-                st.write("🛠️ **[Action 2]** 修正檢索式，執行二次精準檢索...")
-                time.sleep(1.5)
-                st.code("Query: (水冷排 OR 散熱器) AND (踏板 OR 底部) AND (機車 OR 摩托車) AND 導風罩", language="sql")
-                
-                # Step 6: 鎖定目標
-                st.write("🎯 **[Match]** 檢索完畢！成功鎖定一篇高度相關的日本 YAMAHA 早期公開案。")
-                time.sleep(1)
-                
-                status.update(label="特務任務完成！已準備好全要件比對報告。", state="complete", expanded=False)
-            
-            # 任務完成後，顯示 AI 生成的比對結果
-            st.markdown("### 📑 疑似有效前案報告 (Prior Art Candidate)")
-            st.success("**前案字號：** JP-2018-123456-A (YAMAHA MOTOR CO LTD) | **公開日：** 2018-05-12")
-            
-            st.markdown("#### ⚖️ 全要件讀取比對 (All-Elements Mapping)")
-            # 這裡利用 Markdown 表格呈現法務最需要的比對表
-            mapping_table = """
-| 目標專利要件 (Target Limitations) | 前案揭露對應段落 (Prior Art Disclosure) | 涵蓋評估 |
-| :--- | :--- | :--- |
-| 一種機車冷卻系統 | 本發明涉及一種跨騎式車輛之冷卻裝置... 【0012】 | ✅ 完全讀取 |
-| 包含：一水冷排 | 具備散熱器 (Radiator) 14... 【0015】 | ✅ 均等讀取 |
-| 設置於腳踏板下方 | 散熱器14配置於低置腳踏板 (Footboard) 正下方空間... 【0021】 | ✅ 完全讀取 |
-| 一導風罩，連接於該水冷排 | 設有一樹脂導流罩20，包覆於散熱器前方迎風面... 【0028】 | ✅ 完全讀取 |
-            """
-            st.markdown(mapping_table)
-            
-            st.info("💡 **Agent 洞察結論：** 該 YAMAHA 前案已完整揭露目標請求項之所有物理與空間特徵，具有極高的進步性核駁/無效化潛力。建議送交 Tab 2 進行更嚴謹的文義與圖面確認。")
-        else:
-            st.warning("請先輸入目標專利的請求項內容！")
+    st.write("（介面保留區：未來可在此整合自動檢索的 AI Agent 邏輯）")
