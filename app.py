@@ -275,11 +275,12 @@ with tab_ingest:
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
+                # 🌟 完整還原：六大分類死命令，絕對不允許漏字！
                 prompt = f"""
                 你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。
                 【請嚴格輸出 JSON 格式】：
                 {{
-                  "五大類": "【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[動力引擎, 車架懸吊, 電裝, 機電, 車體外觀, 其他]。禁止發明新詞，禁止使用斜線。若符合多個分類，請用半形逗號分隔。",
+                  "五大類": "【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[動力引擎, 車架懸吊, 電裝, 機電, 車體外觀, 其他]。禁止發明新詞，禁止使用斜線。若你覺得是『懸吊』或『車架』，必須強制寫成『車架懸吊』。若都不符合，請強制寫『其他』。可多選，用半形逗號分隔。",
                   "次系統": "自訂 5-8 字的具體系統名",
                   "特殊機構": "15字內精準描述其物理改變",
                   "達成功效": "20字內描述解決的痛點",
@@ -495,6 +496,7 @@ with tab_single:
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
+                                # 🌟 完整還原：10大天條
                                 ip_report_template = """
 【一、 🚦 FTO 風險判定】
 (🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)
@@ -533,7 +535,7 @@ with tab_single:
 (分析屬於機構整併或架構重組，並說明解決了什麼困境)
                                 """
 
-                                # 🌟 強化 Prompt：嚴格禁止 AI 元件張冠李戴
+                                # 🌟 完整還原：禁止張冠李戴、精準抄錄
                                 prompt_master = f'''
                                 【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。
                                 【🔴 輸出格式嚴格要求：純 JSON 格式】
@@ -787,7 +789,7 @@ with tab_single:
                             st.markdown("### 📖 說明書具體限制")
                             with st.container(height=895, border=True):
                                 st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                # 🌟 修正：拿掉 or active_c.get('id','') in t，避免只搜到數字(如 23)產生的大量無關段落誤判
+                                # 🌟 完整還原：拿掉 ID 搜尋，徹底解決說明書抓出垃圾段落的問題
                                 found_texts = [t for t in st.session_state.claim_data_t2.get('spec_texts', []) if active_c['name'] in t]
                                 if not found_texts: st.warning("未找到說明。")
                                 else:
