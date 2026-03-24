@@ -124,7 +124,7 @@ def generate_thumbnail_base64(pdf_bytes, page_num=2, max_size=800):
 
 def create_word_doc(text):
     doc = Document()
-    doc.add_heading('專利戰略深度分析報告 (IP 嚴謹版)', 0)
+    doc.add_heading('專利戰略深度分析報告', 0)
     for para in text.split('\n'):
         if para.strip(): doc.add_paragraph(para.strip())
     bio = io.BytesIO()
@@ -275,7 +275,6 @@ with tab_ingest:
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
-                # 🌟 完整還原：六大分類死命令，絕對不允許漏字！
                 prompt = f"""
                 你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。
                 【請嚴格輸出 JSON 格式】：
@@ -496,7 +495,6 @@ with tab_single:
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
-                                # 🌟 完整還原：10大天條
                                 ip_report_template = """
 【一、 🚦 FTO 風險判定】
 (🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)
@@ -535,7 +533,6 @@ with tab_single:
 (分析屬於機構整併或架構重組，並說明解決了什麼困境)
                                 """
 
-                                # 🌟 完整還原：禁止張冠李戴、精準抄錄
                                 prompt_master = f'''
                                 【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。
                                 【🔴 輸出格式嚴格要求：純 JSON 格式】
@@ -789,7 +786,6 @@ with tab_single:
                             st.markdown("### 📖 說明書具體限制")
                             with st.container(height=895, border=True):
                                 st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                # 🌟 完整還原：拿掉 ID 搜尋，徹底解決說明書抓出垃圾段落的問題
                                 found_texts = [t for t in st.session_state.claim_data_t2.get('spec_texts', []) if active_c['name'] in t]
                                 if not found_texts: st.warning("未找到說明。")
                                 else:
