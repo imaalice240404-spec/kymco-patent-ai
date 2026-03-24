@@ -602,34 +602,59 @@ with tab_single:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
             with sub_tab_rd:
-                # 🌟 安全讀取
+                # 🌟 安全讀取與嚴格轉型防護網
                 rd_data = st.session_state.rd_card_data or {}
+                if not isinstance(rd_data, dict): rd_data = {}
                 
                 col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.5])
                 with col_c1:
                     with st.container(border=True, height=480):
-                        st.markdown(f"#### 🎯 研發戰略看板\n**{rd_data.get('title', '未知')}**")
-                        st.markdown(f"**🔥 解決痛點：** {rd_data.get('problem', '')}\n**💡 核心解法：** {rd_data.get('solution', '')}")
+                        st.markdown(f"#### 🎯 研發戰略看板\n**{str(rd_data.get('title', '未知'))}**")
+                        st.markdown(f"**🔥 解決痛點：** {str(rd_data.get('problem', ''))}\n**💡 核心解法：** {str(rd_data.get('solution', ''))}")
 
                 with col_c2:
                     with st.container(border=True, height=480):
                         st.markdown("#### 🛡️ 獨立項（最廣範圍）全要件檢核")
                         st.caption("全要件原則：若我司設計符合下方【所有】特徵，則侵權風險極高。")
-                        risk_list = rd_data.get('risk_check', [])
+                        
+                        # 🌟 將 risk_check 強制轉為安全的純字串清單
+                        raw_risk = rd_data.get('risk_check', [])
+                        clean_risks = []
+                        if isinstance(raw_risk, list):
+                            for r in raw_risk: clean_risks.append(str(r))
+                        elif isinstance(raw_risk, dict):
+                            for k, v in raw_risk.items(): clean_risks.append(f"{k}: {v}")
+                        elif raw_risk:
+                            clean_risks.append(str(raw_risk))
+
                         checked_count = 0
-                        for i, risk in enumerate(risk_list):
-                            if st.checkbox(f"{risk}", key=f"risk_c_{i}"): checked_count += 1
+                        for i, risk_str in enumerate(clean_risks):
+                            # 使用 target_id 創造絕對獨立的 Key，防止跨專利干擾
+                            safe_key = f"rc_{target_id}_{i}"
+                            if st.checkbox(risk_str, key=safe_key): 
+                                checked_count += 1
                         
                         st.markdown("<br>", unsafe_allow_html=True)
-                        if len(risk_list) > 0:
-                            if checked_count == len(risk_list): st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 警告：全要件命中，高度侵權風險！</b></div>", unsafe_allow_html=True)
+                        if len(clean_risks) > 0:
+                            if checked_count == len(clean_risks): st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 警告：全要件命中，高度侵權風險！</b></div>", unsafe_allow_html=True)
                             else: st.markdown("<div style='padding:10px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px;'><b>🎉 至少一要件未命中，文義迴避成功。</b></div>", unsafe_allow_html=True)
 
                 with col_c3:
                     with st.container(border=True, height=480):
                         st.markdown("#### 🛡️ 高階迴避建議方向")
                         st.caption("建議研發從下方機構特徵進行「實質修改」：")
-                        for avoid in rd_data.get('design_avoid_rd', []): st.markdown(f"✅ {avoid}")
+                        
+                        raw_avoid = rd_data.get('design_avoid_rd', [])
+                        clean_avoids = []
+                        if isinstance(raw_avoid, list):
+                            for a in raw_avoid: clean_avoids.append(str(a))
+                        elif isinstance(raw_avoid, dict):
+                            for k, v in raw_avoid.items(): clean_avoids.append(f"{k}: {v}")
+                        elif raw_avoid:
+                            clean_avoids.append(str(raw_avoid))
+
+                        for avoid_str in clean_avoids: 
+                            st.markdown(f"✅ {avoid_str}")
 
                 st.markdown("---")
                 st.markdown("### 🎯 終極雙向連動大屏 (支援圖面旋轉)")
@@ -660,6 +685,7 @@ with tab_single:
                 
                 # 🌟 安全讀取 Claim Data
                 claim_data = st.session_state.claim_data_t2 or {}
+                if not isinstance(claim_data, dict): claim_data = {}
                 
                 with col_btn:
                     st.write("")
@@ -667,8 +693,9 @@ with tab_single:
                         if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
                             with st.spinner("Gemini Vision 正在極高精度鎖定座標..."):
                                 try:
-                                    comp_dict_list = claim_data.get("components", [])
-                                    known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
+                                    raw_comps = claim_data.get("components", [])
+                                    if not isinstance(raw_comps, list): raw_comps = []
+                                    known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
                                     
                                     prompt_vision = "\n".join([
                                         f"這是一張專利圖。已知元件表：{known_comps_str}。",
@@ -686,22 +713,28 @@ with tab_single:
                         if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
                         else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
 
-                claim_lines = claim_data.get("claims", [])
+                raw_claims = claim_data.get("claims", [])
+                claim_lines = raw_claims if isinstance(raw_claims, list) else [str(raw_claims)]
+                
                 comp_dict_list = claim_data.get("components", [])
-                loophole_quote = claim_data.get("loophole_quote", "")
+                if not isinstance(comp_dict_list, list): comp_dict_list = []
+                
+                loophole_quote = str(claim_data.get("loophole_quote", ""))
                 
                 final_claims_html_list = []
                 for i, line in enumerate(claim_lines):
-                    processed_line = line
+                    processed_line = str(line)
                     
                     if i == 0 and loophole_quote and loophole_quote in processed_line:
                         processed_line = processed_line.replace(loophole_quote, f'<mark class="loophole-highlight">{loophole_quote}</mark>')
                     
                     for comp in comp_dict_list:
-                        c_num = comp.get("id", "")
-                        c_name = comp.get("name", "")
-                        replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
-                        processed_line = processed_line.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
+                        if isinstance(comp, dict):
+                            c_num = str(comp.get("id", ""))
+                            c_name = str(comp.get("name", ""))
+                            if c_num and c_name:
+                                replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
+                                processed_line = processed_line.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
                     
                     if i == 0:
                         final_claims_html_list.append(f'<div class="independent-claim-box">{processed_line}</div>')
@@ -713,9 +746,13 @@ with tab_single:
                 hotspots_html = ""
                 if is_scanned:
                     for spot in st.session_state.scanned_pages.get(scan_key, []):
-                        if spot.get('name') != "未知":
+                        if isinstance(spot, dict) and str(spot.get('name', '')) != "未知":
+                            s_num = str(spot.get('number', ''))
+                            s_name = str(spot.get('name', ''))
+                            s_x = spot.get('x_rel', 0)
+                            s_y = spot.get('y_rel', 0)
                             hotspots_html += f"""
-                            <div class="hotspot hotspot-marker-{spot.get('number', '')}" id="hotspot-{spot.get('number', '')}" style="left: {spot.get('x_rel', 0)*100}%; top: {spot.get('y_rel', 0)*100}%;" onmouseover="hoverImage('{spot.get('number', '')}', '{spot.get('name', '')}')" onmouseout="leaveImage('{spot.get('number', '')}')"></div>"""
+                            <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')"></div>"""
 
                 css_style = (
                     "<style>\n"
@@ -769,43 +806,59 @@ with tab_single:
                 with ip_tab_claim:
                     # 🌟 安全讀取
                     claim_data_ip = st.session_state.claim_data_t2 or {}
+                    if not isinstance(claim_data_ip, dict): claim_data_ip = {}
+                    
                     components_list = claim_data_ip.get("components", [])
-                    if components_list:
-                        comp_options = {f"[{c.get('id','')}] {c.get('name','')}": c for c in components_list}
-                        col_sel, _ = st.columns([1, 1])
-                        with col_sel:
-                            selected_comp = st.selectbox(f"🎯 選擇比對目標元件 (共 {len(components_list)} 個)：", list(comp_options.keys()), key="ip_comp_sel")
-                            active_c = comp_options[selected_comp]
+                    if isinstance(components_list, list) and len(components_list) > 0:
+                        comp_options = {}
+                        for c in components_list:
+                            if isinstance(c, dict):
+                                c_id = str(c.get('id', ''))
+                                c_name = str(c.get('name', ''))
+                                if c_id and c_name:
+                                    comp_options[f"[{c_id}] {c_name}"] = c
                         
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        col_left, col_right = st.columns([1, 1])
-                        
-                        with col_left:
-                            st.markdown("### 🧩 獨立項文義")
-                            with st.container(height=350, border=True):
-                                for line in claim_data_ip.get("claims", []):
-                                    if active_c['name'] in line:
-                                        hl_line = line.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
-                                        st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
-                                    else:
-                                        st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line}</div>", unsafe_allow_html=True)
+                        if comp_options:
+                            col_sel, _ = st.columns([1, 1])
+                            with col_sel:
+                                selected_comp = st.selectbox(f"🎯 選擇比對目標元件 (共 {len(comp_options)} 個)：", list(comp_options.keys()), key="ip_comp_sel")
+                                active_c = comp_options[selected_comp]
                             
-                            st.markdown("### 🖼️ 專利圖面")
-                            pdf_doc_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
-                            pg_ip = st.number_input("頁碼", min_value=1, max_value=len(pdf_doc_ip), value=min(2, len(pdf_doc_ip)), key="ip_pg")
-                            with st.container(height=450, border=True): 
-                                st.image(pdf_doc_ip[pg_ip - 1].render(scale=2.0).to_pil(), use_container_width=True)
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            col_left, col_right = st.columns([1, 1])
+                            
+                            with col_left:
+                                st.markdown("### 🧩 獨立項文義")
+                                with st.container(height=350, border=True):
+                                    raw_claims_ip = claim_data_ip.get("claims", [])
+                                    claims_ip_list = raw_claims_ip if isinstance(raw_claims_ip, list) else [str(raw_claims_ip)]
+                                    for line in claims_ip_list:
+                                        line_str = str(line)
+                                        if active_c['name'] in line_str:
+                                            hl_line = line_str.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
+                                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
+                                        else:
+                                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line_str}</div>", unsafe_allow_html=True)
+                                
+                                st.markdown("### 🖼️ 專利圖面")
+                                pdf_doc_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
+                                pg_ip = st.number_input("頁碼", min_value=1, max_value=len(pdf_doc_ip), value=min(2, len(pdf_doc_ip)), key="ip_pg")
+                                with st.container(height=450, border=True): 
+                                    st.image(pdf_doc_ip[pg_ip - 1].render(scale=2.0).to_pil(), use_container_width=True)
 
-                        with col_right:
-                            st.markdown("### 📖 說明書具體限制")
-                            with st.container(height=895, border=True):
-                                st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                found_texts = [t for t in claim_data_ip.get('spec_texts', []) if active_c['name'] in t]
-                                if not found_texts: st.warning("未找到說明。")
-                                else:
-                                    for t in found_texts:
-                                        hl_t = t.replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
-                                        st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
+                            with col_right:
+                                st.markdown("### 📖 說明書具體限制")
+                                with st.container(height=895, border=True):
+                                    st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
+                                    raw_texts = claim_data_ip.get('spec_texts', [])
+                                    texts_list = raw_texts if isinstance(raw_texts, list) else [str(raw_texts)]
+                                    
+                                    found_texts = [str(t) for t in texts_list if active_c['name'] in str(t)]
+                                    if not found_texts: st.warning("未找到說明。")
+                                    else:
+                                        for t in found_texts:
+                                            hl_t = t.replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
+                                            st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
 
 # ==========================================
 # 🗺️ 模組四：傳統宏觀地圖
