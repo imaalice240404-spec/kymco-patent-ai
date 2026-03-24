@@ -291,24 +291,29 @@ with tab_ingest:
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
-                prompt = "\n".join([
-                    "你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。",
-                    "【請嚴格輸出 JSON 格式】：",
-                    "{",
-                    "  \"五大類\": \"【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[動力引擎, 車架懸吊, 電裝, 機電, 車體外觀, 其他]。禁止發明新詞，禁止使用斜線。若你覺得是『懸吊』或『車架』，必須強制寫成『車架懸吊』。若都不符合，請強制寫『其他』。可多選，用半形逗號分隔。\",",
-                    "  \"次系統\": \"自訂 5-8 字的具體系統名\",",
-                    "  \"特殊機構\": \"15字內精準描述其物理改變\",",
-                    "  \"達成功效\": \"20字內描述解決的痛點\",",
-                    "  \"核心解法\": \"用 RD 聽得懂的白話文，精確描述零件之間的連接與作動關係。\"",
-                    "}",
-                    "【待分析專利】：",
-                    f"【名稱】：{row['專利名稱']}",
-                    f"【摘要】：{row['摘要']}",
-                    f"【請求項】：{row['請求項']}"
-                ])
+                # 🌟 第一道防護：徹底分離變數與 JSON
+                prompt_data = f"""
+                你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。
+                【待分析專利】：
+                【名稱】：{row['專利名稱']}
+                【摘要】：{row['摘要']}
+                【請求項】：{row['請求項']}
+                
+                【請嚴格依據下方格式輸出純 JSON】：
+                """
+                
+                prompt_json = """
+                {
+                  "五大類": "【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[動力引擎, 車架懸吊, 電裝, 機電, 車體外觀, 其他]。禁止發明新詞，禁止使用斜線。若你覺得是『懸吊』或『車架』，必須強制寫成『車架懸吊』。若都不符合，請強制寫『其他』。可多選，用半形逗號分隔。",
+                  "次系統": "自訂 5-8 字的具體系統名",
+                  "特殊機構": "15字內精準描述其物理改變",
+                  "達成功效": "20字內描述解決的痛點",
+                  "核心解法": "用 RD 聽得懂的白話文，精確描述零件之間的連接與作動關係。"
+                }
+                """
                 
                 try:
-                    res = model.generate_content(prompt)
+                    res = model.generate_content(prompt_data + prompt_json)
                     res_json = parse_ai_json(res.text) 
                     
                     raw_cat = res_json.get('五大類', '其他')
@@ -497,7 +502,6 @@ with tab_single:
                     if not has_thumb: generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
                     
                     if has_cache:
-                        # 🌟 絕對防護：讀取快取時強制轉換 None 為 {}
                         st.session_state.rd_card_data = cached_data.get('rd_card_json') or {}
                         st.session_state.claim_data_t2 = cached_data.get('vis_data_json') or {}
                         st.session_state.ip_report_content = cached_data.get('ip_report_text') or ""
@@ -512,76 +516,76 @@ with tab_single:
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
-                                ip_report_template = "\n".join([
-                                    "【一、 🚦 FTO 風險判定】",
-                                    "(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)",
-                                    "★ 強制判定防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為🟢。",
-                                    "",
-                                    "【二、📸 技術核心快照】",
-                                    "1. **發明目的：** (說明解決傳統弊病)",
-                                    "2. **核心技術：** (說明具體零件結構設計)",
-                                    "3. **宣稱功效：** (說明提升了什麼物理效果)",
-                                    "",
-                                    "【三、🏢 研發部門精準派發】",
-                                    "[填入建議部門]。 (分發理由)",
-                                    "",
-                                    "【四、🛑 先前技術與妥協分析 (防禦地雷)】",
-                                    "**本案欲解決之舊設計缺點：** (習用技術缺點)",
-                                    "**空間配置限制（破口分析）：** (列出獨立項限縮最嚴格之特徵)",
-                                    "",
-                                    "【五、🧩 獨立項全要件拆解 (Claim Chart)】",
-                                    "**最廣獨立項（請求項1）拆解：**",
-                                    "(以 1. 2. 3. 逐行條列拆解，不要加註解！)",
-                                    "**破口：** (精準點出最容易被迴避的限制條件)",
-                                    "",
-                                    "【六、🪤 附屬項隱藏地雷探測】",
-                                    "(條列出具備具體結構形狀、位置、或參數限制的附屬項)",
-                                    "",
-                                    "【七、👁️ 侵權可偵測性評估】",
-                                    "(極易偵測 / 需破壞性拆解，並給出理由)",
-                                    "",
-                                    "【八、🕵️‍♂️ 實證功效檢驗 (打假雷達)】",
-                                    "(是否有實體測試數據，或僅為定性描述)",
-                                    "",
-                                    "【九、🛡️ 高階迴避設計建議 (防範均等論)】",
-                                    "(提出基於破口的具體修改機構方向)",
-                                    "",
-                                    "【十、🧬 技術演進與機構整併雷達】",
-                                    "(分析屬於機構整併或架構重組，並說明解決了什麼困境)"
-                                ])
+                                # 🌟 第二道防護：徹底分離變數與 JSON
+                                ip_report_template = """
+【一、 🚦 FTO 風險判定】
+(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)
+★ 強制判定防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為🟢。
 
-                                prompt_master = "\n".join([
-                                    "【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。",
-                                    "【🔴 輸出格式嚴格要求：純 JSON 格式】",
-                                    "{",
-                                    "  \"rd_card\": {",
-                                    "    \"title\": \"一句話總結\", ",
-                                    "    \"problem\": \"傳統缺點\", ",
-                                    "    \"solution\": \"本專利特殊結構\",",
-                                    "    \"risk_check\": [\"1-1. 獨立項全要件特徵A\", \"1-2. 獨立項全要件特徵B\"],",
-                                    "    \"design_avoid_rd\": [\"針對獨立項限制A的迴避方向\", \"針對獨立項限制B的迴避方向\"]",
-                                    "  },",
-                                    "  \"vis_data\": {",
-                                    "    \"claims\": [\"1. 獨立項全文...\", \"2. 依據請求項1...\"],",
-                                    "    \"components\": [ {\"id\": \"10\", \"name\": \"車架\"} ],",
-                                    "    \"spec_texts\": [\"【00xx】段落內容全文\"],",
-                                    "    \"loophole_quote\": \"請直接從上方【請求項】原文中，『一字不漏』複製最能代表本案特徵/破口(限制最多)的那一段文字。⚠️請勿包含習知技術，且連標點符號都必須與原文100%一致，否則系統無法上色！\"",
-                                    "  },",
-                                    "  \"ip_report\": \"請填寫完下方【IP報告十點】後輸出在此，不要使用 Markdown 格式。\"",
-                                    "}",
-                                    "【補充指示】：",
-                                    "1. rd_card.risk_check 請務必「逐項拆解請求項 1 (獨立項) 的所有全要件限制」。",
-                                    "2. vis_data.claims 請務必保留「請求項全文的數字編號」，絕對不可省略。",
-                                    "3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對（例如說明書寫『第一管部22相當於下降管部』，則下降管部的 id 就是 22，絕不可誤植為 23）。",
-                                    "",
-                                    "【IP報告結構】：",
-                                    ip_report_template
-                                ])
+【二、📸 技術核心快照】
+1. **發明目的：** (說明解決傳統弊病)
+2. **核心技術：** (說明具體零件結構設計)
+3. **宣稱功效：** (說明提升了什麼物理效果)
+
+【三、🏢 研發部門精準派發】
+[填入建議部門]。 (分發理由)
+
+【四、🛑 先前技術與妥協分析 (防禦地雷)】
+**本案欲解決之舊設計缺點：** (習用技術缺點)
+**空間配置限制（破口分析）：** (列出獨立項限縮最嚴格之特徵)
+
+【五、🧩 獨立項全要件拆解 (Claim Chart)】
+**最廣獨立項（請求項1）拆解：**
+(以 1. 2. 3. 逐行條列拆解，不要加註解！)
+**破口：** (精準點出最容易被迴避的限制條件)
+
+【六、🪤 附屬項隱藏地雷探測】
+(條列出具備具體結構形狀、位置、或參數限制的附屬項)
+
+【七、👁️ 侵權可偵測性評估】
+(極易偵測 / 需破壞性拆解，並給出理由)
+
+【八、🕵️‍♂️ 實證功效檢驗 (打假雷達)】
+(是否有實體測試數據，或僅為定性描述)
+
+【九、🛡️ 高階迴避設計建議 (防範均等論)】
+(提出基於破口的具體修改機構方向)
+
+【十、🧬 技術演進與機構整併雷達】
+(分析屬於機構整併或架構重組，並說明解決了什麼困境)
+                                """
+
+                                prompt_data_m3 = "【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。\n【🔴 輸出格式嚴格要求：純 JSON 格式】\n"
+                                prompt_json_m3 = """
+                                {
+                                  "rd_card": {
+                                    "title": "一句話總結", 
+                                    "problem": "傳統缺點", 
+                                    "solution": "本專利特殊結構",
+                                    "risk_check": ["1-1. 獨立項全要件特徵A", "1-2. 獨立項全要件特徵B"],
+                                    "design_avoid_rd": ["針對獨立項限制A的迴避方向", "針對獨立項限制B的迴避方向"]
+                                  },
+                                  "vis_data": {
+                                    "claims": ["1. 獨立項全文...", "2. 依據請求項1..."],
+                                    "components": [ {"id": "10", "name": "車架"} ],
+                                    "spec_texts": ["【00xx】段落內容全文"],
+                                    "loophole_quote": "請直接從上方【請求項】原文中，『一字不漏』複製最能代表本案特徵/破口(限制最多)的那一段文字。⚠️請勿包含習知技術，且連標點符號都必須與原文100%一致，否則系統無法上色！"
+                                  },
+                                  "ip_report": "請填寫完下方【IP報告十點】後輸出在此，不要使用 Markdown 格式。"
+                                }
+                                【補充指示】：
+                                1. rd_card.risk_check 請務必「逐項拆解請求項 1 (獨立項) 的所有全要件限制」。
+                                2. vis_data.claims 請務必保留「請求項全文的數字編號」，絕對不可省略。
+                                3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對（例如說明書寫『第一管部22相當於下降管部』，則下降管部的 id 就是 22，絕不可誤植為 23）。
+
+                                【IP報告結構】：
+                                """
+                                
+                                prompt_master = prompt_data_m3 + prompt_json_m3 + ip_report_template
 
                                 response = model.generate_content([gemini_file, prompt_master])
                                 master_json = parse_ai_json(response.text) 
                                 
-                                # 🌟 強制賦予預設值，絕對不允許 None 進入 Session
                                 st.session_state.rd_card_data = master_json.get("rd_card") or {}
                                 st.session_state.claim_data_t2 = master_json.get("vis_data") or {}
                                 st.session_state.ip_report_content = master_json.get("ip_report", "") or ""
@@ -602,7 +606,6 @@ with tab_single:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
             with sub_tab_rd:
-                # 🌟 安全讀取與嚴格轉型防護網
                 rd_data = st.session_state.rd_card_data or {}
                 if not isinstance(rd_data, dict): rd_data = {}
                 
@@ -617,7 +620,6 @@ with tab_single:
                         st.markdown("#### 🛡️ 獨立項（最廣範圍）全要件檢核")
                         st.caption("全要件原則：若我司設計符合下方【所有】特徵，則侵權風險極高。")
                         
-                        # 🌟 將 risk_check 強制轉為安全的純字串清單
                         raw_risk = rd_data.get('risk_check', [])
                         clean_risks = []
                         if isinstance(raw_risk, list):
@@ -629,7 +631,6 @@ with tab_single:
 
                         checked_count = 0
                         for i, risk_str in enumerate(clean_risks):
-                            # 使用 target_id 創造絕對獨立的 Key，防止跨專利干擾
                             safe_key = f"rc_{target_id}_{i}"
                             if st.checkbox(risk_str, key=safe_key): 
                                 checked_count += 1
@@ -683,28 +684,28 @@ with tab_single:
                 scan_key = f"{target_page}_{rot_angle}"
                 is_scanned = scan_key in st.session_state.scanned_pages
                 
-                # 🌟 安全讀取 Claim Data
                 claim_data = st.session_state.claim_data_t2 or {}
                 if not isinstance(claim_data, dict): claim_data = {}
                 
                 with col_btn:
                     st.write("")
                     if not is_scanned:
-                        if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
+                        if st.button(f"🔍 啟提圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
                             with st.spinner("Gemini Vision 正在極高精度鎖定座標..."):
                                 try:
                                     raw_comps = claim_data.get("components", [])
                                     if not isinstance(raw_comps, list): raw_comps = []
                                     known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
                                     
-                                    prompt_vision = "\n".join([
-                                        f"這是一張專利圖。已知元件表：{known_comps_str}。",
-                                        "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。",
-                                        "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。",
-                                        "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
-                                    ])
+                                    prompt_data_vis = f"這是一張專利圖。已知元件表：{known_comps_str}。\n"
+                                    prompt_json_vis = """
+                                    請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。
+                                    【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列。
+                                    嚴格輸出 JSON 格式。範例：
+                                    { "hotspots": [ {"number": "31", "name": "汽缸頭", "x_rel": 0.452, "y_rel": 0.551} ] }
+                                    """
                                     
-                                    response_vis = model.generate_content([cropped_img, prompt_vision])
+                                    response_vis = model.generate_content([cropped_img, prompt_data_vis + prompt_json_vis])
                                     ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", [])
                                     st.session_state.scanned_pages[scan_key] = ai_visual_data
                                     st.rerun()
@@ -804,7 +805,6 @@ with tab_single:
                         st.markdown(st.session_state.ip_report_content)
                 
                 with ip_tab_claim:
-                    # 🌟 安全讀取
                     claim_data_ip = st.session_state.claim_data_t2 or {}
                     if not isinstance(claim_data_ip, dict): claim_data_ip = {}
                     
@@ -918,19 +918,20 @@ with tab_macro:
                         sample_df = df_macro.head(analyze_count)
                         p_data = "".join([f"[{str(row['證書號'] if row['證書號'] else row['申請號'])}] {str(row['專利名稱'])} | 機構：{str(row['特殊機構'])} | 功效：{str(row['達成功效'])}\n" for _, row in sample_df.iterrows()])
                         
-                        prompt_matrix = "\n".join([
-                            "請分析以下機車專利資料，並輸出純 JSON 格式。",
-                            "矩陣維度X (達成功效): [\"提升散熱與冷卻\", \"提升燃燒與動力效率\", \"結構緊湊與輕量化\", \"降低震動與噪音\", \"改善潤滑與耐用度\", \"降低製造成本\"]。",
-                            "矩陣維度Y (技術手段): [\"汽缸本體與散熱片\", \"活塞曲軸\", \"氣門進排氣\", \"機油道水套\", \"燃油噴射點火\", \"引擎外殼\", \"煞車懸吊\", \"電控儀表\"]。",
-                            "{",
-                            "  \"matrix\": [{\"專利號\": \"XXX\", \"技術手段\": \"選項\", \"達成功效\": \"選項\"}],",
-                            "  \"top_patents\": [{\"專利號\": \"XXX\", \"專利名稱\": \"XXX\", \"威脅度\": \"🔴極高/🟡中等\", \"入選理由\": \"...\"}]",
-                            "}",
-                            f"資料：\n{p_data}"
-                        ])
+                        prompt_data_mat = f"資料：\n{p_data}\n"
+                        prompt_json_mat = """
+                        請分析以下機車專利資料，並輸出純 JSON 格式。
+                        矩陣維度X (達成功效): ["提升散熱與冷卻", "提升燃燒與動力效率", "結構緊湊與輕量化", "降低震動與噪音", "改善潤滑與耐用度", "降低製造成本"]。
+                        矩陣維度Y (技術手段): ["汽缸本體與散熱片", "活塞曲軸", "氣門進排氣", "機油道水套", "燃油噴射點火", "引擎外殼", "煞車懸吊", "電控儀表"]。
                         
-                        res = model.generate_content(prompt_matrix)
-                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 安全氣囊
+                        {
+                          "matrix": [{"專利號": "XXX", "技術手段": "選項", "達成功效": "選項"}],
+                          "top_patents": [{"專利號": "XXX", "專利名稱": "XXX", "威脅度": "🔴極高/🟡中等", "入選理由": "..."}]
+                        }
+                        """
+                        
+                        res = model.generate_content(prompt_data_mat + prompt_json_mat)
+                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) 
                         st.success("✅ 戰略矩陣解析完成！")
                     except Exception as e: 
                         st.error(f"分析失敗：{e}")
@@ -995,39 +996,39 @@ with tab_combine:
                     ref_a = option_mapping[ref_a_sel]
                     ref_b = option_mapping[ref_b_sel]
 
-                    prompt_m5 = "\n".join([
-                        "【角色設定】：你是一位熟悉台灣智財局專利審查基準、具備 20 年經驗的機車領域專利代理人（PHOSITA）。",
-                        "【任務】：請基於使用者提供的「官方 OA 爭點」，並參考兩篇引證專利的全文背景，進行 TSM (結合動機) 雙向攻防推演。",
-                        "",
-                        "【使用者輸入之 OA 爭點與特徵】(你的分析靶心)：",
-                        f"- 本案爭點特徵：{target_feature}",
-                        f"- 引證一具體揭露 (OA指定)：{ref_a_detail}",
-                        f"- 引證二具體揭露 (OA指定)：{ref_b_detail}",
-                        f"- 委員結合邏輯：{examiner_logic}",
-                        "",
-                        "【背景知識參考】(用於尋找物理衝突或反向教示)：",
-                        f"[引證A背景] 摘要：{ref_a['摘要']} | 核心解法：{ref_a['核心解法']}",
-                        f"[引證B背景] 摘要：{ref_b['摘要']} | 核心解法：{ref_b['核心解法']}",
-                        "",
-                        "【請嚴格輸出 JSON 格式進行進步性攻防評估】：",
-                        "{",
-                        "  \"delta_feature\": \"請精準總結引證A缺乏，而由引證B補足的『差異特徵』是什麼？\",",
-                        "  \"attack_argument\": {",
-                        "    \"conclusion\": \"結合容易 / 具備進步性核駁空間\",",
-                        "    \"field_problem_match\": \"分析 A 與 B 在領域與解決問題上的共通性...\",",
-                        "    \"motivation_to_combine\": \"順著委員的邏輯，論述為何通常知識者有動機將 B 結合至 A...\"",
-                        "  },",
-                        "  \"defense_argument\": {",
-                        "    \"conclusion\": \"結合困難 / 違反 Could-Would 測試\",",
-                        "    \"teaching_away\": \"利用你讀到的背景知識，列出阻礙 A 結合 B 的客觀技術因素（如物理衝突、安裝限制、破壞發明目的等）...\",",
-                        "    \"hindsight_warning\": \"點出審查委員強行拼湊，犯下了什麼後見之明謬誤...\"",
-                        "  }",
-                        "}"
-                    ])
+                    prompt_data_m5 = (
+                        "【角色設定】：你是一位熟悉台灣智財局專利審查基準、具備 20 年經驗的機車領域專利代理人（PHOSITA）。\n"
+                        "【任務】：請基於使用者提供的「官方 OA 爭點」，並參考兩篇引證專利的全文背景，進行 TSM (結合動機) 雙向攻防推演。\n\n"
+                        "【使用者輸入之 OA 爭點與特徵】(你的分析靶心)：\n"
+                        f"- 本案爭點特徵：{target_feature}\n"
+                        f"- 引證一具體揭露 (OA指定)：{ref_a_detail}\n"
+                        f"- 引證二具體揭露 (OA指定)：{ref_b_detail}\n"
+                        f"- 委員結合邏輯：{examiner_logic}\n\n"
+                        "【背景知識參考】(用於尋找物理衝突或反向教示)：\n"
+                        f"[引證A背景] 摘要：{ref_a['摘要']} | 核心解法：{ref_a['核心解法']}\n"
+                        f"[引證B背景] 摘要：{ref_b['摘要']} | 核心解法：{ref_b['核心解法']}\n\n"
+                        "【請嚴格輸出 JSON 格式進行進步性攻防評估】：\n"
+                    )
+                    
+                    prompt_json_m5 = """
+                    {
+                      "delta_feature": "請精準總結引證A缺乏，而由引證B補足的『差異特徵』是什麼？",
+                      "attack_argument": {
+                        "conclusion": "結合容易 / 具備進步性核駁空間",
+                        "field_problem_match": "分析 A 與 B 在領域與解決問題上的共通性...",
+                        "motivation_to_combine": "順著委員的邏輯，論述為何通常知識者有動機將 B 結合至 A..."
+                      },
+                      "defense_argument": {
+                        "conclusion": "結合困難 / 違反 Could-Would 測試 (我方強力答辯觀點)",
+                        "teaching_away": "利用你讀到的背景知識，列出阻礙 A 結合 B 的客觀技術因素（如物理衝突、安裝限制、破壞發明目的等）...",
+                        "hindsight_warning": "點出審查委員強行拼湊，犯下了什麼後見之明謬誤..."
+                      }
+                    }
+                    """
                     
                     try:
-                        res_m5 = model.generate_content(prompt_m5)
-                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 安全氣囊
+                        res_m5 = model.generate_content(prompt_data_m5 + prompt_json_m5)
+                        st.session_state.m5_result = parse_ai_json(res_m5.text) 
                         st.success("✅ TSM 雙向攻防推演完成！")
                     except Exception as e:
                         st.error(f"分析失敗，請確認 API 連線或稍後再試。錯誤訊息：{e}")
