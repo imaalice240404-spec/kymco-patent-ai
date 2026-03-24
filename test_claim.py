@@ -18,17 +18,14 @@ from PIL import Image, ImageOps
 st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
 
 def get_config(keys):
-    """嘗試從多個可能的變數名中取得設定，防止 KeyError 當機"""
     for k in keys:
         try: return st.secrets[k]
         except: continue
     return None
 
-# 讀取資料庫設定
 S_URL = get_config(["SUPABASE_URL"])
 S_KEY = get_config(["SUPABASE_KEY"])
 
-# 🌟 讀取兩支 Google API Key 並執行負載平衡
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
 if get_config(["GOOGLE_API_KEY_2"]): key_pool.append(st.secrets["GOOGLE_API_KEY_2"])
@@ -38,7 +35,6 @@ if not all([S_URL, S_KEY, key_pool]):
     st.error("❌ 系統偵測到雲端 Secrets 設定缺失！請在 Streamlit 後台檢查 SUPABASE_URL, SUPABASE_KEY, GOOGLE_API_KEY 是否填寫正確。")
     st.stop()
 
-# 隨機挑選一支 Key 來啟動本次 Session
 SELECTED_G_KEY = random.choice(key_pool)
 genai.configure(api_key=SELECTED_G_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash', generation_config=genai.types.GenerationConfig(temperature=0.1, top_p=0.8))
@@ -62,7 +58,7 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 2. 輔助函數 (加入金剛不壞 JSON 解析器)
+# 🛠️ 2. 輔助函數
 # ==========================================
 def parse_ai_json(text_or_dict):
     if isinstance(text_or_dict, dict): return text_or_dict
@@ -269,7 +265,6 @@ with tab_ingest:
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
-                # 🌟 安全字串縫合法 (防 GitHub 斷行報錯)
                 prompt = "你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。\n【請嚴格輸出 JSON 格式】：\n{\n"
                 prompt += "  \"五大類\": \"【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[動力引擎, 車架懸吊, 電裝, 機電, 車體外觀, 其他]。禁止發明新詞，禁止使用斜線。若你覺得是『懸吊』或『車架』，必須強制寫成『車架懸吊』。若都不符合，請強制寫『其他』。可多選，用半形逗號分隔。\",\n"
                 prompt += "  \"次系統\": \"自訂 5-8 字的具體系統名\",\n"
@@ -468,7 +463,6 @@ with tab_single:
                     if not has_thumb: generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
                     
                     if has_cache:
-                        # 🌟 安全氣囊啟動
                         st.session_state.rd_card_data = cached_data.get('rd_card_json') or {}
                         st.session_state.claim_data_t2 = cached_data.get('vis_data_json') or {}
                         st.session_state.ip_report_content = cached_data.get('ip_report_text') or ""
@@ -552,7 +546,6 @@ with tab_single:
                                 response = model.generate_content([gemini_file, prompt_master])
                                 master_json = parse_ai_json(response.text) 
                                 
-                                # 🌟 強制賦予預設值，絕對不允許 None 進入 Session
                                 st.session_state.rd_card_data = master_json.get("rd_card") or {}
                                 st.session_state.claim_data_t2 = master_json.get("vis_data") or {}
                                 st.session_state.ip_report_content = master_json.get("ip_report", "") or ""
@@ -573,7 +566,6 @@ with tab_single:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
             with sub_tab_rd:
-                # 🌟 安全讀取與嚴格轉型防護網
                 rd_data = st.session_state.rd_card_data or {}
                 if not isinstance(rd_data, dict): rd_data = {}
                 
@@ -643,16 +635,16 @@ with tab_single:
                 if rot_angle != 0:
                     raw_pil_img = raw_pil_img.rotate(-rot_angle, expand=True, fillcolor='white')
                 
-                cropped_img = crop_white_margins(raw_pil_img) 
+                # 🌟 修復座標偏移問題：確保送給 AI 分析與網頁顯示的是同一張裁切圖
+                final_cropped_img = crop_white_margins(raw_pil_img) 
                 img_byte_arr = io.BytesIO()
-                cropped_img.save(img_byte_arr, format='JPEG')
+                final_cropped_img.save(img_byte_arr, format='JPEG')
                 encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode()
                 img_uri = f"data:image/jpeg;base64,{encoded_img}"
 
                 scan_key = f"{target_page}_{rot_angle}"
                 is_scanned = scan_key in st.session_state.scanned_pages
                 
-                # 🌟 安全讀取 Claim Data
                 claim_data = st.session_state.claim_data_t2 or {}
                 if not isinstance(claim_data, dict): claim_data = {}
                 
@@ -666,14 +658,14 @@ with tab_single:
                                     if not isinstance(raw_comps, list): raw_comps = []
                                     known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
                                     
-                                    prompt_vision = "\n".join([
-                                        f"這是一張專利圖。已知元件表：{known_comps_str}。",
-                                        "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。",
-                                        "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。",
-                                        "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
-                                    ])
+                                    # 🌟 高精度指令加回，並使用 + 號縫合防斷行
+                                    prompt_vision = "這是一張專利圖。已知元件表：" + known_comps_str + "。\n"
+                                    prompt_vision += "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。\n"
+                                    prompt_vision += "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。\n"
+                                    prompt_vision += "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
                                     
-                                    response_vis = model.generate_content([cropped_img, prompt_vision])
+                                    # 傳送最終裁切好的圖給 AI 辨識，確保座標100%對齊
+                                    response_vis = model.generate_content([final_cropped_img, prompt_vision])
                                     ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", [])
                                     st.session_state.scanned_pages[scan_key] = ai_visual_data
                                     st.rerun()
@@ -818,7 +810,6 @@ with tab_single:
                                 st.markdown("### 📖 說明書具體限制")
                                 with st.container(height=895, border=True):
                                     st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                    # 🌟 完全修正：只精準比對中文名稱
                                     found_texts = [t for t in claim_data_ip.get('spec_texts', []) if active_c['name'] in str(t)]
                                     if not found_texts: st.warning("未找到說明。")
                                     else:
