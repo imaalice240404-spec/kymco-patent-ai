@@ -63,8 +63,23 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = None
 
 # ==========================================
-# 🛠️ 2. 輔助函數
+# 🛠️ 2. 輔助函數 (新增金剛不壞 JSON 解析器)
 # ==========================================
+def parse_ai_json(text_or_dict):
+    """絕對防彈的 JSON 解析器，解決 TypeError 與字串斷行問題"""
+    if isinstance(text_or_dict, dict): 
+        return text_or_dict
+    try:
+        cln = str(text_or_dict).replace('```json', '').replace('```', '').strip()
+        s = cln.find('{')
+        e = cln.rfind('}')
+        if s != -1 and e != -1:
+            return json.loads(cln[s:e+1])
+        return json.loads(cln)
+    except Exception as e:
+        st.error(f"⚠️ JSON 解析異常，但系統已攔截防崩潰！({e})")
+        return {}
+
 def safe_str(val):
     if pd.isna(val) or val is None: return ""
     return str(val).strip()
@@ -269,14 +284,13 @@ with tab_ingest:
             batch_size = 1
             st.info("💡 目前僅有 1 筆新資料待處理")
             
-        if st.button(f"🤖 啟動高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
+        if st.button(f"🤖 啟掌握高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
             process_df = pending_df.head(batch_size)
             progress_bar = st.progress(0)
             status_text = st.empty()
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
-                # 絕對防彈：字串縫合寫法
                 prompt = "\n".join([
                     "你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。",
                     "【請嚴格輸出 JSON 格式】：",
@@ -295,8 +309,7 @@ with tab_ingest:
                 
                 try:
                     res = model.generate_content(prompt)
-                    cln = res.text.replace('```json', '').replace('```', '').strip()
-                    res_json = json.loads(cln[cln.find('{'):cln.rfind('}')+1])
+                    res_json = parse_ai_json(res.text) # 🌟 套用無敵解析器
                     
                     raw_cat = res_json.get('五大類', '其他')
                     valid_cats = ['動力引擎', '車架懸吊', '電裝', '機電', '車體外觀', '其他']
@@ -498,47 +511,49 @@ with tab_single:
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
+                                # 🌟 完整還原 10 大天條與所有 Emoji
                                 ip_report_template = "\n".join([
-                                    "【一、 FTO 風險判定】",
-                                    "(紅燈：具威脅 / 黃燈：需注意 / 綠燈：已失效。並簡述判定與證書號)",
-                                    "防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為綠燈。",
+                                    "【一、 🚦 FTO 風險判定】",
+                                    "(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)",
+                                    "★ 強制判定防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為🟢。",
                                     "",
-                                    "【二、 技術核心快照】",
-                                    "1. 發明目的： (說明解決傳統弊病)",
-                                    "2. 核心技術： (說明具體零件結構設計)",
-                                    "3. 宣稱功效： (說明提升了什麼物理效果)",
+                                    "【二、📸 技術核心快照】",
+                                    "1. **發明目的：** (說明解決傳統弊病)",
+                                    "2. **核心技術：** (說明具體零件結構設計)",
+                                    "3. **宣稱功效：** (說明提升了什麼物理效果)",
                                     "",
-                                    "【三、 研發部門精準派發】",
+                                    "【三、🏢 研發部門精準派發】",
                                     "[填入建議部門]。 (分發理由)",
                                     "",
-                                    "【四、 先前技術與妥協分析】",
-                                    "本案欲解決之舊設計缺點： (習用技術缺點)",
-                                    "空間配置限制： (列出獨立項限縮最嚴格之特徵)",
+                                    "【四、🛑 先前技術與妥協分析 (防禦地雷)】",
+                                    "**本案欲解決之舊設計缺點：** (習用技術缺點)",
+                                    "**空間配置限制（破口分析）：** (列出獨立項限縮最嚴格之特徵)",
                                     "",
-                                    "【五、 獨立項全要件拆解】",
-                                    "最廣獨立項（請求項1）拆解：",
+                                    "【五、🧩 獨立項全要件拆解 (Claim Chart)】",
+                                    "**最廣獨立項（請求項1）拆解：**",
                                     "(以 1. 2. 3. 逐行條列拆解，不要加註解！)",
-                                    "破口： (精準點出最容易被迴避的限制條件)",
+                                    "**破口：** (精準點出最容易被迴避的限制條件)",
                                     "",
-                                    "【六、 附屬項隱藏地雷探測】",
+                                    "【六、🪤 附屬項隱藏地雷探測】",
                                     "(條列出具備具體結構形狀、位置、或參數限制的附屬項)",
                                     "",
-                                    "【七、 侵權可偵測性評估】",
+                                    "【七、👁️ 侵權可偵測性評估】",
                                     "(極易偵測 / 需破壞性拆解，並給出理由)",
                                     "",
-                                    "【八、 實證功效檢驗】",
+                                    "【八、🕵️‍♂️ 實證功效檢驗 (打假雷達)】",
                                     "(是否有實體測試數據，或僅為定性描述)",
                                     "",
-                                    "【九、 高階迴避設計建議】",
+                                    "【九、🛡️ 高階迴避設計建議 (防範均等論)】",
                                     "(提出基於破口的具體修改機構方向)",
                                     "",
-                                    "【十、 技術演進與機構整併雷達】",
+                                    "【十、🧬 技術演進與機構整併雷達】",
                                     "(分析屬於機構整併或架構重組，並說明解決了什麼困境)"
                                 ])
 
+                                # 🌟 完整還原：禁止張冠李戴、精準抄錄，並無懼字串崩潰
                                 prompt_master = "\n".join([
-                                    "【資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。",
-                                    "【輸出格式嚴格要求：純 JSON 格式】",
+                                    "【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。",
+                                    "【🔴 輸出格式嚴格要求：純 JSON 格式】",
                                     "{",
                                     "  \"rd_card\": {",
                                     "    \"title\": \"一句話總結\", ",
@@ -550,24 +565,22 @@ with tab_single:
                                     "  \"vis_data\": {",
                                     "    \"claims\": [\"1. 獨立項全文...\", \"2. 依據請求項1...\"],",
                                     "    \"components\": [ {\"id\": \"10\", \"name\": \"車架\"} ],",
-                                    "    \"spec_texts\": [\"段落內容全文\"],",
-                                    "    \"loophole_quote\": \"請直接從上方請求項原文中，一字不漏複製最能代表本案特徵或破口的那一段文字。請勿包含習知技術，且連標點符號都必須與原文一致，否則系統無法上色！\"",
+                                    "    \"spec_texts\": [\"【00xx】段落內容全文\"],",
+                                    "    \"loophole_quote\": \"請直接從上方【請求項】原文中，『一字不漏』複製最能代表本案特徵/破口(限制最多)的那一段文字。⚠️請勿包含習知技術，且連標點符號都必須與原文100%一致，否則系統無法上色！\"",
                                     "  },",
-                                    "  \"ip_report\": \"請填寫完下方 IP報告十點 後輸出在此，不要使用 Markdown 格式。\"",
+                                    "  \"ip_report\": \"請填寫完下方【IP報告十點】後輸出在此，不要使用 Markdown 格式。\"",
                                     "}",
                                     "【補充指示】：",
                                     "1. rd_card.risk_check 請務必「逐項拆解請求項 1 (獨立項) 的所有全要件限制」。",
                                     "2. vis_data.claims 請務必保留「請求項全文的數字編號」，絕對不可省略。",
-                                    "3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。絕對不可張冠李戴配錯對。",
+                                    "3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對（例如說明書寫『第一管部22相當於下降管部』，則下降管部的 id 就是 22，絕不可誤植為 23）。",
                                     "",
                                     "【IP報告結構】：",
                                     ip_report_template
                                 ])
 
                                 response = model.generate_content([gemini_file, prompt_master])
-                                clean_text = response.text.replace('```json', '').replace('```', '').strip()
-                                clean_text = clean_text[clean_text.find('{'):clean_text.rfind('}')+1]
-                                master_json = json.loads(clean_text)
+                                master_json = parse_ai_json(response.text) # 🌟 套用無敵解析器
 
                                 st.session_state.rd_card_data = master_json.get("rd_card")
                                 st.session_state.claim_data_t2 = master_json.get("vis_data")
@@ -661,15 +674,7 @@ with tab_single:
                                     ])
                                     
                                     response_vis = model.generate_content([cropped_img, prompt_vision])
-                                    if not response_vis.text: ai_visual_data = []
-                                    else:
-                                        clean_text_vis = response_vis.text.replace('```json', '').replace('```', '').strip()
-                                        start_idx = clean_text_vis.find('{')
-                                        end_idx = clean_text_vis.rfind('}')
-                                        if start_idx != -1 and end_idx != -1:
-                                            clean_text_vis = clean_text_vis[start_idx:end_idx+1]
-                                            ai_visual_data = json.loads(clean_text_vis).get("hotspots", [])
-                                        else: ai_visual_data = [] 
+                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", []) # 🌟 套用無敵解析器
                                     st.session_state.scanned_pages[scan_key] = ai_visual_data
                                     st.rerun()
                                 except Exception as e: st.error(f"視覺解析失敗：{e}")
@@ -789,6 +794,7 @@ with tab_single:
                             st.markdown("### 📖 說明書具體限制")
                             with st.container(height=895, border=True):
                                 st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
+                                # 🌟 完整還原：絕對不透過 ID 誤抓垃圾段落，只精準比對中文名稱
                                 found_texts = [t for t in st.session_state.claim_data_t2.get('spec_texts', []) if active_c['name'] in t]
                                 if not found_texts: st.warning("未找到說明。")
                                 else:
@@ -860,14 +866,13 @@ with tab_macro:
                             "矩陣維度Y (技術手段): [\"汽缸本體與散熱片\", \"活塞曲軸\", \"氣門進排氣\", \"機油道水套\", \"燃油噴射點火\", \"引擎外殼\", \"煞車懸吊\", \"電控儀表\"]。",
                             "{",
                             "  \"matrix\": [{\"專利號\": \"XXX\", \"技術手段\": \"選項\", \"達成功效\": \"選項\"}],",
-                            "  \"top_patents\": [{\"專利號\": \"XXX\", \"專利名稱\": \"XXX\", \"威脅度\": \"極高/中等\", \"入選理由\": \"...\"}]",
+                            "  \"top_patents\": [{\"專利號\": \"XXX\", \"專利名稱\": \"XXX\", \"威脅度\": \"🔴極高/🟡中等\", \"入選理由\": \"...\"}]",
                             "}",
                             f"資料：\n{p_data}"
                         ])
                         
                         res = model.generate_content(prompt_matrix)
-                        cln = res.text.replace('```json','').replace('```','').strip()
-                        st.session_state.ai_macro_matrix = json.loads(cln[cln.find('{'):cln.rfind('}')+1])
+                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 套用無敵解析器
                         st.success("✅ 戰略矩陣解析完成！")
                     except Exception as e: 
                         st.error(f"分析失敗：{e}")
@@ -912,15 +917,15 @@ with tab_combine:
 
         st.markdown("### 🎯 第二步：手動標定攻防爭點 (來自 OA 或研發機密)")
         with st.container(border=True):
-            target_feature = st.text_area("1. 本案欲保護/答辯之核心特徵 (請貼上被核駁之請求項，或尚未公開之研發特徵)", height=100)
+            target_feature = st.text_area("1. 🛡️ 本案欲保護/答辯之核心特徵 (請貼上被核駁之請求項，或尚未公開之研發特徵)", height=100)
             
             col_m5_text1, col_m5_text2 = st.columns(2)
             with col_m5_text1:
-                ref_a_detail = st.text_area("2. 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+                ref_a_detail = st.text_area("2. 📄 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
             with col_m5_text2:
-                ref_b_detail = st.text_area("3. 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+                ref_b_detail = st.text_area("3. 📄 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
                 
-            examiner_logic = st.text_area("4. 審查委員之結合邏輯 (委員為何認為兩者具備結合動機？)", height=100)
+            examiner_logic = st.text_area("4. ⚔️ 審查委員之結合邏輯 (委員為何認為兩者具備結合動機？)", height=100)
 
         if st.button("🚀 啟動 TSM 雙向攻防分析", type="primary", use_container_width=True):
             if not target_feature or not ref_a_detail or not ref_b_detail:
@@ -962,8 +967,7 @@ with tab_combine:
                     
                     try:
                         res_m5 = model.generate_content(prompt_m5)
-                        cln_m5 = res_m5.text.replace('```json', '').replace('```', '').strip()
-                        st.session_state.m5_result = json.loads(cln_m5[cln_m5.find('{'):cln_m5.rfind('}')+1])
+                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 套用無敵解析器
                         st.success("✅ TSM 雙向攻防推演完成！")
                     except Exception as e:
                         st.error(f"分析失敗，請確認 API 連線或稍後再試。錯誤訊息：{e}")
