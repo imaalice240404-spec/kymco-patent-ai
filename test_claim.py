@@ -12,15 +12,9 @@ import plotly.express as px
 from PIL import Image, ImageOps
 
 # ==========================================
-# ⚙️ 1. 系統診斷與環境初始化
+# ⚙️ 1. 系統診斷與雙 Key 負載平衡
 # ==========================================
 st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
-
-# 🔍 診斷工具：這行會幫你確認 Secrets 到底有沒有被系統讀到
-if st.secrets:
-    st.info(f"🔍 系統診斷 - 當前偵測到的 Secrets 鑰匙清單：{list(st.secrets.keys())}")
-else:
-    st.error("❌ 系統診斷 - 完全偵測不到任何 Secrets 設定！請檢查 Streamlit 後台設定。")
 
 def get_config(keys):
     """嘗試從多個可能的變數名中取得設定"""
@@ -29,16 +23,27 @@ def get_config(keys):
         except: continue
     return None
 
-S_URL = get_config(["SUPABASE_URL", "supabase_url", "URL"])
-S_KEY = get_config(["SUPABASE_KEY", "supabase_key", "KEY"])
-G_KEY = get_config(["GOOGLE_API_KEY", "google_api_key", "GEMINI_KEY", "API_KEY"])
+# 讀取資料庫設定
+S_URL = get_config(["SUPABASE_URL"])
+S_KEY = get_config(["SUPABASE_KEY"])
 
-if not all([S_URL, S_KEY, G_KEY]):
-    st.warning("⚠️ 等待 Secrets 設定中... 請確保後台已填寫 SUPABASE_URL, SUPABASE_KEY, GOOGLE_API_KEY。")
+# 🌟 讀取兩支 Google API Key 並執行負載平衡
+key_pool = []
+if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
+if get_config(["GOOGLE_API_KEY_2"]): key_pool.append(st.secrets["GOOGLE_API_KEY_2"])
+
+# 如果後台沒分 1、2，只有一個 GOOGLE_API_KEY 也接住
+if not key_pool and get_config(["GOOGLE_API_KEY"]):
+    key_pool.append(st.secrets["GOOGLE_API_KEY"])
+
+if not all([S_URL, S_KEY, key_pool]):
+    st.info(f"🔍 診斷：偵測到金鑰清單 {list(st.secrets.keys())}")
+    st.warning("⚠️ Secrets 設定不完全，請確保 SUPABASE_URL, SUPABASE_KEY 與 GOOGLE_API_KEY_1 存在。")
     st.stop()
 
-# 初始化連線
-genai.configure(api_key=G_KEY)
+# 隨機挑選一支 Key 來啟動本次 Session
+SELECTED_G_KEY = random.choice(key_pool)
+genai.configure(api_key=SELECTED_G_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 @st.cache_resource
@@ -73,7 +78,8 @@ def crop_margins(img):
 # 📊 3. 介面模組
 # ==========================================
 with st.sidebar:
-    st.title("系統控制")
+    st.title("系統控制台")
+    st.success(f"🔋 負載平衡：目前使用第 {key_pool.index(SELECTED_G_KEY)+1} 支 API Key")
     if st.button("🗑️ 徹底重置快取", use_container_width=True):
         st.session_state.clear()
         st.rerun()
@@ -104,7 +110,7 @@ with t3:
         pdf_file = st.file_uploader("上傳專利 PDF 說明書", type=["pdf"])
         
         if pdf_file and st.button("🚀 啟動 AI 全文深度拆解", type="primary"):
-            with st.spinner("AI 正在閱讀 PDF 並進行 10 大天條審查..."):
+            with st.spinner("AI 正在使用雙向連動螢光筆技術進行掃描..."):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(pdf_file.getvalue())
@@ -113,7 +119,7 @@ with t3:
                     p = "請分析PDF專利。輸出純JSON包含:\n"
                     p += "1. rd_card: {title, problem, solution, risk_check(List), design_avoid_rd(List)}\n"
                     p += "2. vis_data: {claims(List), components(List of {id, name}), spec_texts(List), loophole_quote(String)}\n"
-                    p += "3. ip_report: 遵守10大天條(FTO風險判定、技術快照、部門派發、破口、Claim Chart、地雷探測、可偵測性、打假、迴避建議、機構整併)。"
+                    p += "3. ip_report: 遵守10大天條。⚠️防呆：下降管部ID絕對不可誤植為23。"
                     
                     res = model.generate_content([gem_file, p])
                     parsed = parse_ai_json(res.text)
@@ -142,13 +148,13 @@ with t3:
             with c3:
                 st.write("")
                 if st.button("🔍 標號鎖定座標"):
-                    with st.spinner("AI 視覺標記中..."):
-                        vp = f"找出圖中標號座標(x_rel, y_rel 0~1)。已知元件：{json.dumps(c_data.get('components',[]), ensure_ascii=False)}"
+                    with st.spinner("AI 視覺定位中..."):
+                        vp = f"找出圖中標號座標(x_rel, y_rel 0~1)。元件：{json.dumps(c_data.get('components',[]), ensure_ascii=False)}"
                         vr = model.generate_content([pil, vp])
                         st.session_state.scanned_pages[f"{pg}_{rot}"] = parse_ai_json(vr.text).get("hotspots", [])
                         st.rerun()
 
-            # HTML 連動視窗
+            # HTML 連動核心
             raw_cls = c_data.get("claims", [])
             claims_list = raw_cls if isinstance(raw_cls, list) else [str(raw_cls)]
             loophole = str(c_data.get("loophole_quote", ""))
@@ -167,17 +173,15 @@ with t3:
             spots = "".join([f'<div style="position:absolute;width:30px;height:30px;border:3px solid red;border-radius:50%;left:{s.get("x_rel",0)*100}%;top:{s.get("y_rel",0)*100}%;transform:translate(-50%,-50%);" id="hs-{s.get("number","")}"></div>' for s in st.session_state.scanned_pages.get(f"{pg}_{rot}", [])])
 
             components.html(f"""
-            <div style="display:flex;height:700px;border:1px solid #ddd;overflow:hidden;background:white;">
-                <div style="flex:6;position:relative;overflow:auto;background:#f0f0f0;display:flex;justify-content:center;padding:10px;">
+            <div style="display:flex;height:750px;border:1px solid #ddd;overflow:hidden;">
+                <div style="flex:6;position:relative;overflow:auto;background:#f8f9fa;display:flex;justify-content:center;padding:10px;">
                     <div style="position:relative;display:inline-block;"><img src="data:image/jpeg;base64,{img_b64}" style="max-width:100%;">{spots}</div>
                 </div>
-                <div style="flex:4;padding:25px;overflow-y:auto;background:white;font-size:15px;line-height:1.7;color:#333;">{html_cls}</div>
+                <div style="flex:4;padding:25px;overflow-y:auto;background:white;font-size:15px;line-height:1.7;">{html_cls}</div>
             </div>
             <script>function hoverT(id){{const el=document.getElementById('hs-'+id);if(el)el.style.backgroundColor='rgba(255,255,0,0.6)';}}</script>
-            """, height=720)
+            """, height=770)
 
-with t1: st.info("資料匯入模組穩定中...")
-with t4: st.info("宏觀趨勢地圖模組穩定中...")
-with t5: st.info("組合攻防推演模組穩定中...")
-
-# ===================== 🚀 程式碼完美結束 🚀 =====================
+with t1: st.info("匯入模組維護中。")
+with t4: st.info("宏觀模組維護中。")
+with t5: st.info("攻防模組維護中。")
