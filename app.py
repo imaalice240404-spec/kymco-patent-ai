@@ -309,7 +309,7 @@ with tab_ingest:
                 
                 try:
                     res = model.generate_content(prompt)
-                    res_json = parse_ai_json(res.text) # 🌟 套用無敵解析器
+                    res_json = parse_ai_json(res.text) 
                     
                     raw_cat = res_json.get('五大類', '其他')
                     valid_cats = ['動力引擎', '車架懸吊', '電裝', '機電', '車體外觀', '其他']
@@ -497,9 +497,10 @@ with tab_single:
                     if not has_thumb: generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
                     
                     if has_cache:
-                        st.session_state.rd_card_data = cached_data['rd_card_json']
-                        st.session_state.claim_data_t2 = cached_data['vis_data_json']
-                        st.session_state.ip_report_content = cached_data['ip_report_text']
+                        # 🌟 絕對防護：讀取快取時強制轉換 None 為 {}
+                        st.session_state.rd_card_data = cached_data.get('rd_card_json') or {}
+                        st.session_state.claim_data_t2 = cached_data.get('vis_data_json') or {}
+                        st.session_state.ip_report_content = cached_data.get('ip_report_text') or ""
                         if generated_b64:
                             st.session_state.thumbnail_base64 = generated_b64
                             supabase.table('patents').update({ 'thumbnail_base64': generated_b64 }).eq('id', db_id).execute()
@@ -578,12 +579,12 @@ with tab_single:
                                 ])
 
                                 response = model.generate_content([gemini_file, prompt_master])
-                                master_json = parse_ai_json(response.text) # 🌟 安全氣囊啟動
+                                master_json = parse_ai_json(response.text) 
                                 
-                                # 🌟 強制給預設值，防止當機
+                                # 🌟 強制賦予預設值，絕對不允許 None 進入 Session
                                 st.session_state.rd_card_data = master_json.get("rd_card") or {}
                                 st.session_state.claim_data_t2 = master_json.get("vis_data") or {}
-                                st.session_state.ip_report_content = master_json.get("ip_report", "")
+                                st.session_state.ip_report_content = master_json.get("ip_report", "") or ""
                                 
                                 supabase.table('patents').update({
                                     'rd_card_json': st.session_state.rd_card_data,
@@ -601,7 +602,8 @@ with tab_single:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
             with sub_tab_rd:
-                rd_data = st.session_state.rd_card_data
+                # 🌟 安全讀取
+                rd_data = st.session_state.rd_card_data or {}
                 
                 col_c1, col_c2, col_c3 = st.columns([1.5, 2, 1.5])
                 with col_c1:
@@ -656,13 +658,16 @@ with tab_single:
                 scan_key = f"{target_page}_{rot_angle}"
                 is_scanned = scan_key in st.session_state.scanned_pages
                 
+                # 🌟 安全讀取 Claim Data
+                claim_data = st.session_state.claim_data_t2 or {}
+                
                 with col_btn:
                     st.write("")
                     if not is_scanned:
                         if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
                             with st.spinner("Gemini Vision 正在極高精度鎖定座標..."):
                                 try:
-                                    comp_dict_list = st.session_state.claim_data_t2.get("components", [])
+                                    comp_dict_list = claim_data.get("components", [])
                                     known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
                                     
                                     prompt_vision = "\n".join([
@@ -673,7 +678,7 @@ with tab_single:
                                     ])
                                     
                                     response_vis = model.generate_content([cropped_img, prompt_vision])
-                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", []) # 🌟 安全氣囊
+                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", [])
                                     st.session_state.scanned_pages[scan_key] = ai_visual_data
                                     st.rerun()
                                 except Exception as e: st.error(f"視覺解析失敗：{e}")
@@ -681,8 +686,6 @@ with tab_single:
                         if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
                         else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
 
-                # 🌟 加入安全讀取
-                claim_data = st.session_state.claim_data_t2 or {}
                 claim_lines = claim_data.get("claims", [])
                 comp_dict_list = claim_data.get("components", [])
                 loophole_quote = claim_data.get("loophole_quote", "")
@@ -710,9 +713,9 @@ with tab_single:
                 hotspots_html = ""
                 if is_scanned:
                     for spot in st.session_state.scanned_pages.get(scan_key, []):
-                        if spot['name'] != "未知":
+                        if spot.get('name') != "未知":
                             hotspots_html += f"""
-                            <div class="hotspot hotspot-marker-{spot['number']}" id="hotspot-{spot['number']}" style="left: {spot['x_rel']*100}%; top: {spot['y_rel']*100}%;" onmouseover="hoverImage('{spot['number']}', '{spot['name']}')" onmouseout="leaveImage('{spot['number']}')"></div>"""
+                            <div class="hotspot hotspot-marker-{spot.get('number', '')}" id="hotspot-{spot.get('number', '')}" style="left: {spot.get('x_rel', 0)*100}%; top: {spot.get('y_rel', 0)*100}%;" onmouseover="hoverImage('{spot.get('number', '')}', '{spot.get('name', '')}')" onmouseout="leaveImage('{spot.get('number', '')}')"></div>"""
 
                 css_style = (
                     "<style>\n"
@@ -764,9 +767,9 @@ with tab_single:
                         st.markdown(st.session_state.ip_report_content)
                 
                 with ip_tab_claim:
-                    # 🌟 加入安全讀取
-                    claim_data = st.session_state.claim_data_t2 or {}
-                    components_list = claim_data.get("components", [])
+                    # 🌟 安全讀取
+                    claim_data_ip = st.session_state.claim_data_t2 or {}
+                    components_list = claim_data_ip.get("components", [])
                     if components_list:
                         comp_options = {f"[{c.get('id','')}] {c.get('name','')}": c for c in components_list}
                         col_sel, _ = st.columns([1, 1])
@@ -780,7 +783,7 @@ with tab_single:
                         with col_left:
                             st.markdown("### 🧩 獨立項文義")
                             with st.container(height=350, border=True):
-                                for line in claim_data.get("claims", []):
+                                for line in claim_data_ip.get("claims", []):
                                     if active_c['name'] in line:
                                         hl_line = line.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
                                         st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
@@ -797,7 +800,7 @@ with tab_single:
                             st.markdown("### 📖 說明書具體限制")
                             with st.container(height=895, border=True):
                                 st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                found_texts = [t for t in claim_data.get('spec_texts', []) if active_c['name'] in t]
+                                found_texts = [t for t in claim_data_ip.get('spec_texts', []) if active_c['name'] in t]
                                 if not found_texts: st.warning("未找到說明。")
                                 else:
                                     for t in found_texts:
@@ -874,14 +877,13 @@ with tab_macro:
                         ])
                         
                         res = model.generate_content(prompt_matrix)
-                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 裝上安全氣囊
+                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 安全氣囊
                         st.success("✅ 戰略矩陣解析完成！")
                     except Exception as e: 
                         st.error(f"分析失敗：{e}")
 
             if st.session_state.ai_macro_matrix:
-                # 🌟 安全讀取矩陣資料
-                matrix_data = st.session_state.ai_macro_matrix.get("matrix", [])
+                matrix_data = (st.session_state.ai_macro_matrix or {}).get("matrix", [])
                 if matrix_data:
                     fig_heat = px.density_heatmap(pd.DataFrame(matrix_data), y='技術手段', x='達成功效', text_auto=True, color_continuous_scale='Reds')
                     st.plotly_chart(fig_heat, use_container_width=True)
@@ -889,7 +891,7 @@ with tab_macro:
         with sub_t6:
             st.markdown("### 👑 核心地雷探勘 (Killer Patents)")
             if st.session_state.ai_macro_matrix:
-                for p in st.session_state.ai_macro_matrix.get("top_patents", []):
+                for p in (st.session_state.ai_macro_matrix or {}).get("top_patents", []):
                     with st.container(border=True):
                         c = "red" if "高" in p.get("威脅度", "") else "orange"
                         st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
@@ -972,13 +974,13 @@ with tab_combine:
                     
                     try:
                         res_m5 = model.generate_content(prompt_m5)
-                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 裝上安全氣囊
+                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 安全氣囊
                         st.success("✅ TSM 雙向攻防推演完成！")
                     except Exception as e:
                         st.error(f"分析失敗，請確認 API 連線或稍後再試。錯誤訊息：{e}")
 
         if st.session_state.m5_result:
-            m5_data = st.session_state.m5_result
+            m5_data = st.session_state.m5_result or {}
             st.markdown("---")
             st.markdown(f"### 🎯 差異特徵 (Delta Feature)\n<div style='background-color:#e0f2fe; color:#0369a1; padding:15px; border-radius:8px; font-weight:bold; font-size:16px; border-left: 5px solid #0284c7;'>{m5_data.get('delta_feature', '')}</div><br>", unsafe_allow_html=True)
 
