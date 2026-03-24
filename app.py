@@ -63,7 +63,7 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = None
 
 # ==========================================
-# 🛠️ 2. 輔助函數 (新增金剛不壞 JSON 解析器)
+# 🛠️ 2. 輔助函數 (加入終極安全氣囊)
 # ==========================================
 def parse_ai_json(text_or_dict):
     """絕對防彈的 JSON 解析器，解決 TypeError 與字串斷行問題"""
@@ -284,7 +284,7 @@ with tab_ingest:
             batch_size = 1
             st.info("💡 目前僅有 1 筆新資料待處理")
             
-        if st.button(f"🤖 啟掌握高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
+        if st.button(f"🤖 啟動高階探勘管線 (處理 {batch_size} 筆)", type="primary"):
             process_df = pending_df.head(batch_size)
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -511,7 +511,6 @@ with tab_single:
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
-                                # 🌟 完整還原 10 大天條與所有 Emoji
                                 ip_report_template = "\n".join([
                                     "【一、 🚦 FTO 風險判定】",
                                     "(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)",
@@ -550,7 +549,6 @@ with tab_single:
                                     "(分析屬於機構整併或架構重組，並說明解決了什麼困境)"
                                 ])
 
-                                # 🌟 完整還原：禁止張冠李戴、精準抄錄，並無懼字串崩潰
                                 prompt_master = "\n".join([
                                     "【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。",
                                     "【🔴 輸出格式嚴格要求：純 JSON 格式】",
@@ -580,11 +578,12 @@ with tab_single:
                                 ])
 
                                 response = model.generate_content([gemini_file, prompt_master])
-                                master_json = parse_ai_json(response.text) # 🌟 套用無敵解析器
-
-                                st.session_state.rd_card_data = master_json.get("rd_card")
-                                st.session_state.claim_data_t2 = master_json.get("vis_data")
-                                st.session_state.ip_report_content = master_json.get("ip_report")
+                                master_json = parse_ai_json(response.text) # 🌟 安全氣囊啟動
+                                
+                                # 🌟 強制給預設值，防止當機
+                                st.session_state.rd_card_data = master_json.get("rd_card") or {}
+                                st.session_state.claim_data_t2 = master_json.get("vis_data") or {}
+                                st.session_state.ip_report_content = master_json.get("ip_report", "")
                                 
                                 supabase.table('patents').update({
                                     'rd_card_json': st.session_state.rd_card_data,
@@ -674,17 +673,19 @@ with tab_single:
                                     ])
                                     
                                     response_vis = model.generate_content([cropped_img, prompt_vision])
-                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", []) # 🌟 套用無敵解析器
+                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", []) # 🌟 安全氣囊
                                     st.session_state.scanned_pages[scan_key] = ai_visual_data
                                     st.rerun()
                                 except Exception as e: st.error(f"視覺解析失敗：{e}")
                     else:
-                        if not st.session_state.scanned_pages[scan_key]: st.warning("⚡ 掃描完成，未偵測到標號。")
+                        if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
                         else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
 
-                claim_lines = st.session_state.claim_data_t2.get("claims", [])
-                comp_dict_list = st.session_state.claim_data_t2.get("components", [])
-                loophole_quote = st.session_state.claim_data_t2.get("loophole_quote", "")
+                # 🌟 加入安全讀取
+                claim_data = st.session_state.claim_data_t2 or {}
+                claim_lines = claim_data.get("claims", [])
+                comp_dict_list = claim_data.get("components", [])
+                loophole_quote = claim_data.get("loophole_quote", "")
                 
                 final_claims_html_list = []
                 for i, line in enumerate(claim_lines):
@@ -763,7 +764,9 @@ with tab_single:
                         st.markdown(st.session_state.ip_report_content)
                 
                 with ip_tab_claim:
-                    components_list = st.session_state.claim_data_t2.get("components", [])
+                    # 🌟 加入安全讀取
+                    claim_data = st.session_state.claim_data_t2 or {}
+                    components_list = claim_data.get("components", [])
                     if components_list:
                         comp_options = {f"[{c.get('id','')}] {c.get('name','')}": c for c in components_list}
                         col_sel, _ = st.columns([1, 1])
@@ -777,7 +780,7 @@ with tab_single:
                         with col_left:
                             st.markdown("### 🧩 獨立項文義")
                             with st.container(height=350, border=True):
-                                for line in st.session_state.claim_data_t2.get("claims", []):
+                                for line in claim_data.get("claims", []):
                                     if active_c['name'] in line:
                                         hl_line = line.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
                                         st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
@@ -794,8 +797,7 @@ with tab_single:
                             st.markdown("### 📖 說明書具體限制")
                             with st.container(height=895, border=True):
                                 st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                # 🌟 完整還原：絕對不透過 ID 誤抓垃圾段落，只精準比對中文名稱
-                                found_texts = [t for t in st.session_state.claim_data_t2.get('spec_texts', []) if active_c['name'] in t]
+                                found_texts = [t for t in claim_data.get('spec_texts', []) if active_c['name'] in t]
                                 if not found_texts: st.warning("未找到說明。")
                                 else:
                                     for t in found_texts:
@@ -872,14 +874,17 @@ with tab_macro:
                         ])
                         
                         res = model.generate_content(prompt_matrix)
-                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 套用無敵解析器
+                        st.session_state.ai_macro_matrix = parse_ai_json(res.text) # 🌟 裝上安全氣囊
                         st.success("✅ 戰略矩陣解析完成！")
                     except Exception as e: 
                         st.error(f"分析失敗：{e}")
 
             if st.session_state.ai_macro_matrix:
-                fig_heat = px.density_heatmap(pd.DataFrame(st.session_state.ai_macro_matrix["matrix"]), y='技術手段', x='達成功效', text_auto=True, color_continuous_scale='Reds')
-                st.plotly_chart(fig_heat, use_container_width=True)
+                # 🌟 安全讀取矩陣資料
+                matrix_data = st.session_state.ai_macro_matrix.get("matrix", [])
+                if matrix_data:
+                    fig_heat = px.density_heatmap(pd.DataFrame(matrix_data), y='技術手段', x='達成功效', text_auto=True, color_continuous_scale='Reds')
+                    st.plotly_chart(fig_heat, use_container_width=True)
 
         with sub_t6:
             st.markdown("### 👑 核心地雷探勘 (Killer Patents)")
@@ -967,7 +972,7 @@ with tab_combine:
                     
                     try:
                         res_m5 = model.generate_content(prompt_m5)
-                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 套用無敵解析器
+                        st.session_state.m5_result = parse_ai_json(res_m5.text) # 🌟 裝上安全氣囊
                         st.success("✅ TSM 雙向攻防推演完成！")
                     except Exception as e:
                         st.error(f"分析失敗，請確認 API 連線或稍後再試。錯誤訊息：{e}")
