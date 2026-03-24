@@ -275,6 +275,7 @@ with tab_ingest:
             for i, (idx, row) in enumerate(process_df.iterrows()):
                 status_text.text(f"正在分析 ({i+1}/{batch_size}): {row['專利名稱']} ...")
                 
+                # 淨化後的字串，無表情符號，使用雙引號
                 prompt = f"""
                 你是一位具備 20 年經驗的機車廠資深研發主管(RD)兼專利工程師。
                 【請嚴格輸出 JSON 格式】：
@@ -496,46 +497,47 @@ with tab_single:
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
                                 ip_report_template = """
-【一、 🚦 FTO 風險判定】
-(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)
-★ 強制判定防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為🟢。
+【一、 FTO 風險判定】
+(紅燈：具威脅 / 黃燈：需注意 / 綠燈：已失效。並簡述判定與證書號)
+防呆原則：依「目前狀態」判斷，忽略日期推算。若狀態為「公告/核准」或「公開」，絕對不可判定為綠燈！若為「消滅/無效」或「撤回」才可判為綠燈。
 
-【二、📸 技術核心快照】
-1. **發明目的：** (說明解決傳統弊病)
-2. **核心技術：** (說明具體零件結構設計)
-3. **宣稱功效：** (說明提升了什麼物理效果)
+【二、 技術核心快照】
+1. 發明目的： (說明解決傳統弊病)
+2. 核心技術： (說明具體零件結構設計)
+3. 宣稱功效： (說明提升了什麼物理效果)
 
-【三、🏢 研發部門精準派發】
+【三、 研發部門精準派發】
 [填入建議部門]。 (分發理由)
 
-【四、🛑 先前技術與妥協分析 (防禦地雷)】
-**本案欲解決之舊設計缺點：** (習用技術缺點)
-**空間配置限制（破口分析）：** (列出獨立項限縮最嚴格之特徵)
+【四、 先前技術與妥協分析】
+本案欲解決之舊設計缺點： (習用技術缺點)
+空間配置限制： (列出獨立項限縮最嚴格之特徵)
 
-【五、🧩 獨立項全要件拆解 (Claim Chart)】
-**最廣獨立項（請求項1）拆解：**
+【五、 獨立項全要件拆解】
+最廣獨立項（請求項1）拆解：
 (以 1. 2. 3. 逐行條列拆解，不要加註解！)
-**破口：** (精準點出最容易被迴避的限制條件)
+破口： (精準點出最容易被迴避的限制條件)
 
-【六、🪤 附屬項隱藏地雷探測】
+【六、 附屬項隱藏地雷探測】
 (條列出具備具體結構形狀、位置、或參數限制的附屬項)
 
-【七、👁️ 侵權可偵測性評估】
+【七、 侵權可偵測性評估】
 (極易偵測 / 需破壞性拆解，並給出理由)
 
-【八、🕵️‍♂️ 實證功效檢驗 (打假雷達)】
+【八、 實證功效檢驗】
 (是否有實體測試數據，或僅為定性描述)
 
-【九、🛡️ 高階迴避設計建議 (防範均等論)】
+【九、 高階迴避設計建議】
 (提出基於破口的具體修改機構方向)
 
-【十、🧬 技術演進與機構整併雷達】
+【十、 技術演進與機構整併雷達】
 (分析屬於機構整併或架構重組，並說明解決了什麼困境)
                                 """
 
-                                prompt_master = f'''
-                                【⚠️ 資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。
-                                【🔴 輸出格式嚴格要求：純 JSON 格式】
+                                # 淨化字串，無表情符號，使用雙引號
+                                prompt_master = f"""
+                                【資深機車專利主管語氣】：請仔細閱讀 PDF 檔案。
+                                【輸出格式嚴格要求：純 JSON 格式】
                                 {{
                                   "rd_card": {{
                                     "title": "一句話總結", 
@@ -547,19 +549,19 @@ with tab_single:
                                   "vis_data": {{
                                     "claims": ["1. 獨立項全文...", "2. 依據請求項1..."],
                                     "components": [ {{"id": "10", "name": "車架"}} ],
-                                    "spec_texts": ["【00xx】段落內容全文"],
-                                    "loophole_quote": "請直接從上方【請求項】原文中，『一字不漏』複製最能代表本案特徵/破口(限制最多)的那一段文字。⚠️請勿包含習知技術，且連標點符號都必須與原文100%一致，否則系統無法上色！"
+                                    "spec_texts": ["段落內容全文"],
+                                    "loophole_quote": "請直接從上方請求項原文中，一字不漏複製最能代表本案特徵或破口的那一段文字。請勿包含習知技術，且連標點符號都必須與原文一致，否則系統無法上色！"
                                   }},
-                                  "ip_report": "請填寫完下方【IP報告十點】後輸出在此，不要使用 Markdown 格式。"
+                                  "ip_report": "請填寫完下方 IP報告十點 後輸出在此，不要使用 Markdown 格式。"
                                 }}
                                 【補充指示】：
                                 1. rd_card.risk_check 請務必「逐項拆解請求項 1 (獨立項) 的所有全要件限制」。
                                 2. vis_data.claims 請務必保留「請求項全文的數字編號」，絕對不可省略。
-                                3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對（例如說明書寫『第一管部22相當於下降管部』，則下降管部的 id 就是 22，絕不可誤植為 23）。
+                                3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。絕對不可張冠李戴配錯對（例如說明書寫第一管部22相當於下降管部，則下降管部的 id 就是 22，絕不可誤植為 23）。
 
                                 【IP報告結構】：
                                 {ip_report_template}
-                                '''
+                                """
                                 response = model.generate_content([gemini_file, prompt_master])
                                 clean_text = response.text.replace('```json', '').replace('```', '').strip()
                                 clean_text = clean_text[clean_text.find('{'):clean_text.rfind('}')+1]
@@ -649,10 +651,11 @@ with tab_single:
                                     comp_dict_list = st.session_state.claim_data_t2.get("components", [])
                                     known_comps_str = json.dumps(comp_dict_list, ensure_ascii=False)
                                     
-                                    prompt_vision = f'''這是一張專利圖。已知元件表：{known_comps_str}。
+                                    # 淨化字串
+                                    prompt_vision = f"""這是一張專利圖。已知元件表：{known_comps_str}。
                                     請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。
                                     【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{{ "hotspots": [] }}。
-                                    嚴格輸出 JSON 格式。範例：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.452, "y_rel": 0.551}} ] }}'''
+                                    嚴格輸出 JSON 格式。範例：{{ "hotspots": [ {{"number": "31", "name": "汽缸頭", "x_rel": 0.452, "y_rel": 0.551}} ] }}"""
                                     
                                     response_vis = model.generate_content([cropped_img, prompt_vision])
                                     if not response_vis.text: ai_visual_data = []
@@ -851,17 +854,18 @@ with tab_macro:
                         sample_df = df_macro.head(analyze_count)
                         p_data = "".join([f"[{str(row['證書號'] if row['證書號'] else row['申請號'])}] {str(row['專利名稱'])} | 機構：{str(row['特殊機構'])} | 功效：{str(row['達成功效'])}\n" for _, row in sample_df.iterrows()])
                         
-                        prompt_matrix = f'''
+                        # 淨化字串，無表情符號
+                        prompt_matrix = f"""
                         請分析以下機車專利資料，並輸出純 JSON 格式。
                         矩陣維度X (達成功效): ["提升散熱與冷卻", "提升燃燒與動力效率", "結構緊湊與輕量化", "降低震動與噪音", "改善潤滑與耐用度", "降低製造成本"]。
                         矩陣維度Y (技術手段): ["汽缸本體與散熱片", "活塞曲軸", "氣門進排氣", "機油道水套", "燃油噴射點火", "引擎外殼", "煞車懸吊", "電控儀表"]。
                         
                         {{
                           "matrix": [{{"專利號": "XXX", "技術手段": "選項", "達成功效": "選項"}}],
-                          "top_patents": [{{"專利號": "XXX", "專利名稱": "XXX", "威脅度": "🔴極高/🟡中等", "入選理由": "..."}}]
+                          "top_patents": [{{"專利號": "XXX", "專利名稱": "XXX", "威脅度": "極高/中等", "入選理由": "..."}}]
                         }}
                         資料：{p_data}
-                        '''
+                        """
                         res = model.generate_content(prompt_matrix)
                         cln = res.text.replace('```json','').replace('```','').strip()
                         st.session_state.ai_macro_matrix = json.loads(cln[cln.find('{'):cln.rfind('}')+1])
@@ -909,15 +913,15 @@ with tab_combine:
 
         st.markdown("### 🎯 第二步：手動標定攻防爭點 (來自 OA 或研發機密)")
         with st.container(border=True):
-            target_feature = st.text_area("1. 🛡️ 本案欲保護/答辯之核心特徵 (請貼上被核駁之請求項，或尚未公開之研發特徵)", height=100)
+            target_feature = st.text_area("1. 本案欲保護/答辯之核心特徵 (請貼上被核駁之請求項，或尚未公開之研發特徵)", height=100)
             
             col_m5_text1, col_m5_text2 = st.columns(2)
             with col_m5_text1:
-                ref_a_detail = st.text_area("2. 📄 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+                ref_a_detail = st.text_area("2. 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
             with col_m5_text2:
-                ref_b_detail = st.text_area("3. 📄 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+                ref_b_detail = st.text_area("3. 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
                 
-            examiner_logic = st.text_area("4. ⚔️ 審查委員之結合邏輯 (委員為何認為兩者具備結合動機？)", height=100)
+            examiner_logic = st.text_area("4. 審查委員之結合邏輯 (委員為何認為兩者具備結合動機？)", height=100)
 
         if st.button("🚀 啟動 TSM 雙向攻防分析", type="primary", use_container_width=True):
             if not target_feature or not ref_a_detail or not ref_b_detail:
@@ -927,7 +931,8 @@ with tab_combine:
                     ref_a = option_mapping[ref_a_sel]
                     ref_b = option_mapping[ref_b_sel]
 
-                    prompt_m5 = f'''
+                    # 淨化字串，無表情符號
+                    prompt_m5 = f"""
                     【角色設定】：你是一位熟悉台灣智財局專利審查基準、具備 20 年經驗的機車領域專利代理人（PHOSITA）。
                     【任務】：請基於使用者提供的「官方 OA 爭點」，並參考兩篇引證專利的全文背景，進行 TSM (結合動機) 雙向攻防推演。
 
@@ -945,17 +950,17 @@ with tab_combine:
                     {{
                       "delta_feature": "請精準總結引證A缺乏，而由引證B補足的『差異特徵』是什麼？",
                       "attack_argument": {{
-                        "conclusion": "結合容易 / 具備進步性核駁空間 (模擬審查委員視角)",
+                        "conclusion": "結合容易 / 具備進步性核駁空間",
                         "field_problem_match": "分析 A 與 B 在領域與解決問題上的共通性...",
                         "motivation_to_combine": "順著委員的邏輯，論述為何通常知識者有動機將 B 結合至 A..."
                       }},
                       "defense_argument": {{
-                        "conclusion": "結合困難 / 違反 Could-Would 測試 (我方強力答辯觀點)",
-                        "teaching_away": "利用你讀到的【背景知識參考】，列出阻礙 A 結合 B 的客觀技術因素（如：物理衝突、安裝位置限制、破壞 A 的主要發明目的、作動機制互斥等）...",
-                        "hindsight_warning": "點出審查委員強行將 A 與 B 拼湊，犯下了什麼後見之明謬誤..."
+                        "conclusion": "結合困難 / 違反 Could-Would 測試",
+                        "teaching_away": "利用你讀到的背景知識，列出阻礙 A 結合 B 的客觀技術因素（如物理衝突、安裝限制、破壞發明目的等）...",
+                        "hindsight_warning": "點出審查委員強行拼湊，犯下了什麼後見之明謬誤..."
                       }}
                     }}
-                    '''
+                    """
                     try:
                         res_m5 = model.generate_content(prompt_m5)
                         cln_m5 = res_m5.text.replace('```json', '').replace('```', '').strip()
