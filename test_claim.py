@@ -81,9 +81,8 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 3. 共用常數與輔助函數
+# 🛠️ 3. 共用常數與輔助函數 (🌟 UI 防暈眩優化版)
 # ==========================================
-# 🌟 徹底修復 Tooltip 消失與互動失效問題
 VIEWER_CSS_JS = """
 <style>
     body { margin: 0; font-family: sans-serif; background: #fff; }
@@ -91,9 +90,13 @@ VIEWER_CSS_JS = """
     .img-section { flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; padding: 10px; display: flex; justify-content: center; align-items: flex-start;}
     .img-wrapper { position: relative; display: inline-block; }
     .patent-img { max-width: 100%; height: auto; display: block; }
-    .hotspot { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }
-    .hotspot:hover { background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }
-    .hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }
+    
+    /* 🌟 紅圈縮小與準心設計 */
+    .hotspot { position: absolute; width: 20px; height: 20px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid rgba(255,0,0,0.6); background: rgba(255,0,0,0.1); z-index: 10; }
+    .hotspot::after { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 4px; height: 4px; background: red; border-radius: 50%; }
+    .hotspot:hover { background: rgba(255, 0, 0, 0.4); border: 2px solid red; box-shadow: 0 0 8px rgba(255,0,0,0.6); z-index: 50; }
+    .hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 15px red !important; transform: translate(-50%, -50%) scale(1.4); z-index: 50; }
+    
     #tooltip { display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }
     .text-section { flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }
     .independent-claim-box { background-color: #fafafa; padding: 15px; border-radius: 8px; border-left: 6px solid #94a3b8; margin-bottom: 15px; }
@@ -103,22 +106,49 @@ VIEWER_CSS_JS = """
     .highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }
 </style>
 <script>
+    let tooltip;
+    document.addEventListener("DOMContentLoaded", () => {
+        tooltip = document.getElementById('tooltip');
+    });
+    
+    // 🌟 Hover 只負責亮起顏色與顯示名稱，絕對不捲動
     function hoverImage(num, name) {
-        const tt = document.getElementById('tooltip');
-        if(!tt) return;
-        document.onmousemove = e => { tt.style.left = (e.pageX + 15) + 'px'; tt.style.top = (e.pageY + 15) + 'px'; };
-        tt.innerHTML = "標號 <b>" + num + "</b> : " + name; 
-        tt.style.display = 'block'; 
-        document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); 
+        if(!tooltip) tooltip = document.getElementById('tooltip');
+        document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; };
+        tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; 
+        tooltip.style.display = 'block'; 
+        document.querySelectorAll('.comp-' + num).forEach((el) => { el.classList.add('highlight-active'); }); 
     }
+    
     function leaveImage(num) { 
         document.onmousemove = null; 
-        const tt = document.getElementById('tooltip');
-        if(tt) tt.style.display = 'none'; 
+        if(tooltip) tooltip.style.display = 'none'; 
         document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); 
     }
-    function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }
-    function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }
+    
+    function hoverText(num) { 
+        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); 
+        const hs = document.getElementById('hotspot-' + num); 
+        if(hs) hs.classList.add('hotspot-active'); 
+    }
+    
+    function leaveText(num) { 
+        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); 
+        const hs = document.getElementById('hotspot-' + num); 
+        if(hs) hs.classList.remove('hotspot-active'); 
+    }
+    
+    // 🌟 點擊才觸發捲動防暈眩
+    function clickImageToScrollText(num) {
+        document.querySelectorAll('.comp-' + num).forEach((el, i) => { 
+            if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); 
+        });
+    }
+    
+    function clickTextToScrollImage(num) {
+        const hs = document.getElementById('hotspot-' + num); 
+        if(hs) hs.scrollIntoView({behavior:'smooth', block:'center'}); 
+    }
 </script>
 """
 
@@ -215,7 +245,6 @@ if IS_ADMIN: PAGES.append(ADMIN_TAB_NAME)
 
 if 'active_tab' not in st.session_state: st.session_state.active_tab = PAGES[1]
 
-# 如果頁面名稱改變(例如有人送單)，自動修正 session
 if IS_ADMIN and st.session_state.active_tab.startswith("👑 管理者"):
     st.session_state.active_tab = ADMIN_TAB_NAME
 
@@ -417,7 +446,7 @@ elif st.session_state.active_tab == PAGES[0]:
             st.rerun()
 
 # ==========================================
-# 📊 模組二：研發知識庫與任務分發 (多帳號隔離版)
+# 📊 模組二：研發知識庫與任務分發 
 # ==========================================
 elif st.session_state.active_tab == PAGES[1]:
     completed_df = fetch_patents_from_db('COMPLETED')
@@ -755,7 +784,8 @@ elif st.session_state.active_tab == PAGES[2]:
                 with col_c1:
                     with st.container(border=True, height=480):
                         st.markdown(f"#### 🎯 研發戰略看板\n**{str(rd_data.get('title', '未知'))}**")
-                        st.markdown(f"**🔥 解決痛點：** {str(rd_data.get('problem', ''))}\n\n**💡 核心解法：** {str(rd_data.get('solution', ''))}")
+                        # 🌟 解決痛點/解法雙斷行
+                        st.markdown(f"**🔥 解決痛點：**\n\n{str(rd_data.get('problem', ''))}\n\n**💡 核心解法：**\n\n{str(rd_data.get('solution', ''))}")
 
                 with col_c2:
                     with st.container(border=True, height=480):
@@ -838,10 +868,10 @@ elif st.session_state.active_tab == PAGES[2]:
                                         if not isinstance(raw_comps, list): raw_comps = []
                                         known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
                                         
-                                        # 🌟 強化版高精度掃描指令
+                                        # 🌟 強化視覺 Prompt，逼迫 AI 更精確
                                         prompt_vision = "這是一張專利圖。已知元件表：" + known_comps_str + "。\n"
                                         prompt_vision += "請強制找出圖面上「所有肉眼可見的數字標號（包含沒在元件表上的）」！\n"
-                                        prompt_vision += "並精準估算其「數字幾何正中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，精確到小數點後三位)。\n"
+                                        prompt_vision += "並精準估算其「數字幾何正中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。\n"
                                         prompt_vision += "【極度要求】：請仔細掃描，絕對不要漏掉任何一個標號！座標必須精準對齊數字正中心。\n"
                                         prompt_vision += "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
                                         
@@ -852,7 +882,7 @@ elif st.session_state.active_tab == PAGES[2]:
                                     except Exception as e: st.error(f"視覺解析失敗：{e}")
                         else:
                             if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
-                            else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
+                            else: st.success("⚡ 座標已鎖定！請體驗「點擊連動」與「懸停標示」。")
 
                     raw_claims = claim_data.get("claims", [])
                     claim_lines = raw_claims if isinstance(raw_claims, list) else [str(raw_claims)]
@@ -873,7 +903,8 @@ elif st.session_state.active_tab == PAGES[2]:
                                 c_num = str(comp.get("id", ""))
                                 c_name = str(comp.get("name", ""))
                                 if c_num and c_name:
-                                    replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
+                                    # 🌟 加入 onclick 事件觸發捲動
+                                    replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')" onclick="clickTextToScrollImage(\'{c_num}\')">{c_name} ({c_num})</span>'
                                     processed_line = processed_line.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
                         
                         if i == 0: final_claims_html_list.append(f'<div class="independent-claim-box">{processed_line}</div>')
@@ -889,8 +920,9 @@ elif st.session_state.active_tab == PAGES[2]:
                                 s_name = str(spot.get('name', ''))
                                 s_x = spot.get('x_rel', 0)
                                 s_y = spot.get('y_rel', 0)
+                                # 🌟 加入 onclick 事件觸發捲動
                                 hotspots_html += f"""
-                                <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')"></div>"""
+                                <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')" onclick="clickImageToScrollText('{s_num}')"></div>"""
 
                     html_skeleton = f"""
                     <!DOCTYPE html><html><head>{VIEWER_CSS_JS}</head><body>
@@ -917,7 +949,7 @@ elif st.session_state.active_tab == PAGES[2]:
                             }).execute()
                             st.success("✅ 工單已成功送出！管理者將會盡快處理。")
                         except Exception as e:
-                            st.error(f"送出工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+                            st.error(f"送出工單失敗，請確認是否已在 Supabase 關閉 RLS 並補齊欄位。錯誤：{e}")
 
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
@@ -1047,7 +1079,7 @@ elif st.session_state.active_tab == PAGES[3]:
                         
                         prompt_matrix = "\n".join([
                             "請分析以下機車專利資料，並輸出純 JSON 格式。",
-                            "矩陣維度X (達成功效): [\"提升散熱與冷卻\", \"提升燃燒與動力效率\", \"結構緊湊與輕量化\", \"降低震動與噪音\", \"改善潤滑與耐用度\", \"降低製造成本\"]。",
+                            "矩陣維度X (達成功效): [\"提升散熱與冷卻\", \"提升燃燃與動力效率\", \"結構緊湊與輕量化\", \"降低震動與噪音\", \"改善潤滑與耐用度\", \"降低製造成本\"]。",
                             "矩陣維度Y (技術手段): [\"汽缸本體與散熱片\", \"活塞曲軸\", \"氣門進排氣\", \"機油道水套\", \"燃油噴射點火\", \"引擎外殼\", \"煞車懸吊\", \"電控儀表\"]。",
                             "{",
                             "  \"matrix\": [{\"專利號\": \"XXX\", \"技術手段\": \"選項\", \"達成功效\": \"選項\"}],",
