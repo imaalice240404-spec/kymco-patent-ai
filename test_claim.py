@@ -81,8 +81,36 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 3. 輔助函數
+# 🛠️ 3. 共用常數與輔助函數
 # ==========================================
+# 🌟 補回遺失的 HTML 樣式表變數，解決 NameError
+VIEWER_CSS_JS = """
+<style>
+    body { margin: 0; font-family: sans-serif; background: #fff; }
+    .main-container { display: flex; height: 800px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+    .img-section { flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; padding: 10px; display: flex; justify-content: center; align-items: flex-start;}
+    .img-wrapper { position: relative; display: inline-block; }
+    .patent-img { max-width: 100%; height: auto; display: block; }
+    .hotspot { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }
+    .hotspot:hover { background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }
+    .hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }
+    #tooltip { display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }
+    .text-section { flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }
+    .independent-claim-box { background-color: #fafafa; padding: 15px; border-radius: 8px; border-left: 6px solid #94a3b8; margin-bottom: 15px; }
+    .loophole-highlight { background-color: #ffeb3b; font-weight: bold; color: #b45309; padding: 2px 4px; border-radius: 3px; box-shadow: 0 0 5px rgba(255, 235, 59, 0.8); }
+    .dependent-claim { margin-bottom: 15px; color: #555; }
+    .comp-text { color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }
+    .highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }
+</style>
+<script>
+    const tooltip = document.getElementById('tooltip');
+    function hoverImage(num, name) { document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }; tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; tooltip.style.display = 'block'; document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); }
+    function leaveImage(num) { document.onmousemove = null; tooltip.style.display = 'none'; document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); }
+    function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }
+    function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }
+</script>
+"""
+
 def parse_ai_json(text_or_dict):
     if isinstance(text_or_dict, dict): return text_or_dict
     try:
@@ -164,7 +192,6 @@ def get_patent_type(row):
 # ==========================================
 PAGES = ["📥 模組一：雲端探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：傳統宏觀地圖", "⚔️ 模組五：組合核駁分析"]
 
-# 👑 如果是管理者，多顯示一個工單中心
 if IS_ADMIN:
     PAGES.append("👑 管理者工單中心")
 
@@ -519,21 +546,23 @@ elif st.session_state.active_tab == PAGES[1]:
                         st.session_state.active_tab = PAGES[2] 
                         st.rerun()
 
-                with st.expander("✏️ 手動修改專利狀態 (編輯後立即生效)"):
-                    col_e1, col_e2, col_e3 = st.columns([2, 2, 1])
-                    with col_e1: 
-                        new_legal = st.text_input("法律狀態 (如: 審查中/核准/消滅)", value=p['案件狀態'], key=f"leg_{disp_id}")
-                    with col_e2: 
-                        sys_opts = ["COMPLETED", "PENDING", "FAILED"]
-                        idx = sys_opts.index(p['狀態']) if p['狀態'] in sys_opts else 0
-                        new_sys = st.selectbox("系統分析狀態", sys_opts, index=idx, key=f"sys_{disp_id}")
-                    with col_e3:
-                        st.write("")
-                        if st.button("💾 儲存變更", key=f"save_{disp_id}", use_container_width=True):
-                            supabase.table('patents').update({'legal_status': new_legal, 'status': new_sys}).eq('id', p['ID']).execute()
-                            st.toast("✅ 狀態已手動更新！")
-                            time.sleep(0.5)
-                            st.rerun()
+                # 🌟 權限控管：只有管理者才能看到狀態修改區塊
+                if IS_ADMIN:
+                    with st.expander("✏️ 手動修改專利狀態 (編輯後立即生效)"):
+                        col_e1, col_e2, col_e3 = st.columns([2, 2, 1])
+                        with col_e1: 
+                            new_legal = st.text_input("法律狀態 (如: 審查中/核准/消滅)", value=p['案件狀態'], key=f"leg_{disp_id}")
+                        with col_e2: 
+                            sys_opts = ["COMPLETED", "PENDING", "FAILED"]
+                            idx = sys_opts.index(p['狀態']) if p['狀態'] in sys_opts else 0
+                            new_sys = st.selectbox("系統分析狀態", sys_opts, index=idx, key=f"sys_{disp_id}")
+                        with col_e3:
+                            st.write("")
+                            if st.button("💾 儲存變更", key=f"save_{disp_id}", use_container_width=True):
+                                supabase.table('patents').update({'legal_status': new_legal, 'status': new_sys}).eq('id', p['ID']).execute()
+                                st.toast("✅ 狀態已手動更新！")
+                                time.sleep(0.5)
+                                st.rerun()
 
 # ==========================================
 # 🕵️ 模組三：單篇深度拆解工作站
@@ -666,11 +695,8 @@ elif st.session_state.active_tab == PAGES[2]:
                                     'thumbnail_base64': generated_b64
                                 }).eq('id', db_id).execute()
                                 
-                                # 🌟 獨立刪除邏輯，防止 403 Error 卡死
-                                try:
-                                    genai.delete_file(gemini_file.name)
-                                except:
-                                    pass 
+                                try: genai.delete_file(gemini_file.name)
+                                except: pass 
                                 
                                 os.remove(tmp_file_path)
                                 st.rerun()
@@ -832,7 +858,6 @@ elif st.session_state.active_tab == PAGES[2]:
                     """
                     components.html(html_skeleton, height=820, scrolling=False)
 
-            # 🌟 新增：呼叫專家支援按鈕 (Ticketing System)
             with st.expander("🚨 AI 解析結果不滿意？呼叫管理者人工深度支援"):
                 st.info("如果您認為此專利具有高度威脅，或 AI 拆解有誤，請填寫下方需求，將指派給管理者進行人工解析。")
                 issue_input = st.text_area("請描述您需要協助的部分 (例如：請求項 3 的作動機制判斷似乎有誤)")
@@ -925,7 +950,7 @@ elif st.session_state.active_tab == PAGES[3]:
     st.header("🗺️ 傳統專利大數據分析 (Macro Landscape)")
     
     if st.session_state.target_macro_pool.empty:
-        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「傳統專利分析」按鈕將資料送來這裡。")
+        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「將下方專利送往傳統宏觀地圖分析」按鈕。")
     else:
         df_macro = st.session_state.target_macro_pool
         st.success(f"✅ 已成功載入 **{len(df_macro)}** 筆專利進行宏觀分析！")
