@@ -83,6 +83,7 @@ if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 # ==========================================
 # 🛠️ 3. 共用常數與輔助函數
 # ==========================================
+# 🌟 徹底修復 Tooltip 消失與互動失效問題
 VIEWER_CSS_JS = """
 <style>
     body { margin: 0; font-family: sans-serif; background: #fff; }
@@ -102,20 +103,18 @@ VIEWER_CSS_JS = """
     .highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }
 </style>
 <script>
-    let tooltip;
-    document.addEventListener("DOMContentLoaded", () => {
-        tooltip = document.getElementById('tooltip');
-    });
     function hoverImage(num, name) {
-        if(!tooltip) tooltip = document.getElementById('tooltip');
-        document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; };
-        tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; 
-        tooltip.style.display = 'block'; 
+        const tt = document.getElementById('tooltip');
+        if(!tt) return;
+        document.onmousemove = e => { tt.style.left = (e.pageX + 15) + 'px'; tt.style.top = (e.pageY + 15) + 'px'; };
+        tt.innerHTML = "標號 <b>" + num + "</b> : " + name; 
+        tt.style.display = 'block'; 
         document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); 
     }
     function leaveImage(num) { 
         document.onmousemove = null; 
-        if(tooltip) tooltip.style.display = 'none'; 
+        const tt = document.getElementById('tooltip');
+        if(tt) tt.style.display = 'none'; 
         document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); 
     }
     function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }
@@ -138,7 +137,6 @@ def clean_assignee(name):
     if not name: return "未知"
     return re.split(r'股份有限公司|有限公司|公司', name)[0].split(' ')[0].strip() if name else "未知"
 
-# 🌟 新增個人化紀錄欄位對應
 DB_COL_MAP = {
     'id': 'ID', 'app_num': '申請號', 'cert_num': '證書號', 'pub_date': '公開公告日', 'app_date': '申請日',
     'assignee': '專利權人', 'title': '專利名稱', 'abstract': '摘要', 'claims': '請求項',
@@ -201,14 +199,25 @@ def get_patent_type(row):
     return '其他'
 
 # ==========================================
-# 📊 4. 動態側邊欄導覽 
+# 📊 4. 動態側邊欄導覽 (含即時工單通知)
 # ==========================================
-PAGES = ["📥 模組一：雲端探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：傳統宏觀地圖", "⚔️ 模組五：組合核駁分析"]
-
+open_ticket_count = 0
 if IS_ADMIN:
-    PAGES.append("👑 管理者工單中心")
+    try:
+        res_t = supabase.table('support_tickets').select('id', count='exact').eq('status', 'OPEN').execute()
+        open_ticket_count = res_t.count if res_t.count else 0
+    except: pass
+
+ADMIN_TAB_NAME = f"👑 管理者工單中心 (🔴 {open_ticket_count} 待處理)" if open_ticket_count > 0 else "👑 管理者工單中心"
+
+PAGES = ["📥 模組一：雲端探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：傳統宏觀地圖", "⚔️ 模組五：組合核駁分析"]
+if IS_ADMIN: PAGES.append(ADMIN_TAB_NAME)
 
 if 'active_tab' not in st.session_state: st.session_state.active_tab = PAGES[1]
+
+# 如果頁面名稱改變(例如有人送單)，自動修正 session
+if IS_ADMIN and st.session_state.active_tab.startswith("👑 管理者"):
+    st.session_state.active_tab = ADMIN_TAB_NAME
 
 with st.sidebar:
     st.markdown(f"👤 當前使用者：**{st.session_state.current_user}**")
@@ -241,7 +250,7 @@ st.title("🏍️ 機車專利 AI 戰略分析系統")
 # ==========================================
 # 👑 管理者工單中心 (Admin Dashboard)
 # ==========================================
-if st.session_state.active_tab == "👑 管理者工單中心":
+if st.session_state.active_tab == ADMIN_TAB_NAME:
     st.header("👑 管理者專屬：專家支援工單中心")
     st.markdown("以下是各部門研發人員遇到 AI 解析瓶頸，申請您進行人工深度指導的案件：")
     
@@ -279,7 +288,7 @@ if st.session_state.active_tab == "👑 管理者工單中心":
                         st.write(f"**員工問題：** {t['issue_desc']}")
                         st.success(f"**您的回覆：** {t['admin_reply']}")
     except Exception as e:
-        st.error(f"讀取工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+        st.error(f"讀取工單失敗，請確認資料表設定正確。錯誤：{e}")
 
 # ==========================================
 # 📥 模組一：雲端探勘與資料匯入
@@ -340,7 +349,7 @@ elif st.session_state.active_tab == PAGES[0]:
                         'claims': safe_str(row[col_map['claim']]).replace('\n', '')[:500] if col_map['claim'] else "無請求項",
                         'legal_status': new_status, 'status': 'PENDING',
                         'ipc': safe_str(row[col_map['ipc']]) if col_map['ipc'] else "未知",
-                        'starred_users': '', 'user_tags': '{}' # 🌟 初始化多用戶欄位
+                        'starred_users': '', 'user_tags': '{}'
                     })
                 if i % 10 == 0: progress_bar_import.progress(min(1.0, (i + 1) / len(df)))
             
@@ -415,7 +424,6 @@ elif st.session_state.active_tab == PAGES[1]:
     if completed_df.empty:
         st.warning("⚠️ 目前無已分析的資料，請先至模組一匯入。")
     else:
-        # 🌟 核心轉換：把文字轉成該用戶的專屬狀態
         completed_df['專利類型'] = completed_df.apply(get_patent_type, axis=1)
         completed_df['IPC4'] = completed_df['IPC'].apply(get_ipc4)
         completed_df['用戶標籤'] = completed_df['用戶標籤'].fillna('{}')
@@ -444,8 +452,6 @@ elif st.session_state.active_tab == PAGES[1]:
             all_main_cats = pd.Series([cat.strip() for cats in completed_df['五大類'].astype(str) for cat in cats.split(',') if cat.strip()]).unique()
             filter_main = col_f1.multiselect("📂 1. 技術系統分類", list(all_main_cats))
             filter_sub = col_f2.text_input("⚙️ 2. 次系統 (精確搜尋)")
-            
-            # 🌟 新增：去雜訊專利號搜尋
             search_query = col_f3.text_input("🔑 3. 關鍵字或專利號 (支援輸入 I902542 或 1902542)")
 
             col_f4, col_f5, col_f6 = st.columns(3)
@@ -492,7 +498,6 @@ elif st.session_state.active_tab == PAGES[1]:
             filtered_df = filtered_df[mask | (filtered_df['公開公告日'] == "未知")]
             
         if search_query:
-            # 🌟 強大去雜訊搜尋 (字串全域 + 號碼特化)
             q_clean = re.sub(r'[^a-zA-Z0-9]', '', search_query).upper()
             mask_general = filtered_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)
             mask_num_cert = filtered_df['證書號'].astype(str).str.replace(r'[^a-zA-Z0-9]', '', regex=True).str.upper().str.contains(q_clean)
@@ -555,7 +560,6 @@ elif st.session_state.active_tab == PAGES[1]:
 
                 with col_manage:
                     st.write("")
-                    # 🌟 用戶專屬收藏邏輯
                     star_btn_text = "取消我的收藏" if p['我已收藏'] else "⭐ 加入我的最愛"
                     if st.button(star_btn_text, key=f"star_{disp_id}", use_container_width=True):
                         current_stars = [u for u in str(p['收藏名單']).split(',') if u]
@@ -566,7 +570,6 @@ elif st.session_state.active_tab == PAGES[1]:
                         supabase.table('patents').update({'starred_users': ",".join(current_stars)}).eq('id', p['ID']).execute()
                         st.rerun()
 
-                    # 🌟 用戶專屬標籤邏輯
                     new_tags = st.text_input(f"我的專屬標籤", value=p['我的標籤'], placeholder="#專案A, #對手", key=f"tags_{disp_id}")
                     if new_tags != p['我的標籤']:
                         if st.button("💾 儲存我的標籤", key=f"savetag_{disp_id}", use_container_width=True):
@@ -588,7 +591,6 @@ elif st.session_state.active_tab == PAGES[1]:
                         st.session_state.active_tab = PAGES[2] 
                         st.rerun()
 
-                # 權限控管
                 if IS_ADMIN:
                     with st.expander("✏️ 手動修改專利狀態 (編輯後立即生效)"):
                         col_e1, col_e2, col_e3 = st.columns([2, 2, 1])
@@ -753,7 +755,6 @@ elif st.session_state.active_tab == PAGES[2]:
                 with col_c1:
                     with st.container(border=True, height=480):
                         st.markdown(f"#### 🎯 研發戰略看板\n**{str(rd_data.get('title', '未知'))}**")
-                        # 🌟 修正：強制雙換行 \n\n
                         st.markdown(f"**🔥 解決痛點：** {str(rd_data.get('problem', ''))}\n\n**💡 核心解法：** {str(rd_data.get('solution', ''))}")
 
                 with col_c2:
@@ -837,9 +838,11 @@ elif st.session_state.active_tab == PAGES[2]:
                                         if not isinstance(raw_comps, list): raw_comps = []
                                         known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
                                         
+                                        # 🌟 強化版高精度掃描指令
                                         prompt_vision = "這是一張專利圖。已知元件表：" + known_comps_str + "。\n"
-                                        prompt_vision += "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。\n"
-                                        prompt_vision += "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。\n"
+                                        prompt_vision += "請強制找出圖面上「所有肉眼可見的數字標號（包含沒在元件表上的）」！\n"
+                                        prompt_vision += "並精準估算其「數字幾何正中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，精確到小數點後三位)。\n"
+                                        prompt_vision += "【極度要求】：請仔細掃描，絕對不要漏掉任何一個標號！座標必須精準對齊數字正中心。\n"
                                         prompt_vision += "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
                                         
                                         response_vis = model.generate_content([final_cropped_img, prompt_vision])
@@ -914,7 +917,7 @@ elif st.session_state.active_tab == PAGES[2]:
                             }).execute()
                             st.success("✅ 工單已成功送出！管理者將會盡快處理。")
                         except Exception as e:
-                            st.error(f"送出工單失敗，請確認是否已在 Supabase 關閉 RLS 並補齊欄位。錯誤：{e}")
+                            st.error(f"送出工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
 
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
