@@ -25,7 +25,7 @@ def get_config(keys):
 
 S_URL = get_config(["SUPABASE_URL"])
 S_KEY = get_config(["SUPABASE_KEY"])
-ADMIN_ID = get_config(["ADMIN_ID"]) or "admin" # 預設管理者職號為 admin
+ADMIN_ID = get_config(["ADMIN_ID"]) or "admin"
 
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
@@ -63,7 +63,7 @@ if not st.session_state.current_user:
                     st.rerun()
                 else:
                     st.error("請輸入有效的職號！")
-    st.stop() # 阻擋未登入者看到後續畫面
+    st.stop()
 
 IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
 
@@ -83,7 +83,7 @@ if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 # ==========================================
 # 🛠️ 3. 共用常數與輔助函數
 # ==========================================
-# 🌟 補回遺失的 HTML 樣式表變數，解決 NameError
+# 🌟 完整恢復 Tooltip 提示框語法
 VIEWER_CSS_JS = """
 <style>
     body { margin: 0; font-family: sans-serif; background: #fff; }
@@ -103,9 +103,22 @@ VIEWER_CSS_JS = """
     .highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }
 </style>
 <script>
-    const tooltip = document.getElementById('tooltip');
-    function hoverImage(num, name) { document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }; tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; tooltip.style.display = 'block'; document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); }
-    function leaveImage(num) { document.onmousemove = null; tooltip.style.display = 'none'; document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); }
+    let tooltip;
+    document.addEventListener("DOMContentLoaded", () => {
+        tooltip = document.getElementById('tooltip');
+    });
+    function hoverImage(num, name) {
+        if(!tooltip) tooltip = document.getElementById('tooltip');
+        document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; };
+        tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; 
+        tooltip.style.display = 'block'; 
+        document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); 
+    }
+    function leaveImage(num) { 
+        document.onmousemove = null; 
+        if(tooltip) tooltip.style.display = 'none'; 
+        document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); 
+    }
     function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }
     function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }
 </script>
@@ -266,7 +279,7 @@ if st.session_state.active_tab == "👑 管理者工單中心":
                         st.write(f"**員工問題：** {t['issue_desc']}")
                         st.success(f"**您的回覆：** {t['admin_reply']}")
     except Exception as e:
-        st.error(f"讀取工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+        st.error(f"讀取工單失敗，請確認是否已建立 `support_tickets` 資料表且包含對應欄位。錯誤：{e}")
 
 # ==========================================
 # 📥 模組一：雲端探勘與資料匯入
@@ -546,7 +559,7 @@ elif st.session_state.active_tab == PAGES[1]:
                         st.session_state.active_tab = PAGES[2] 
                         st.rerun()
 
-                # 🌟 權限控管：只有管理者才能看到狀態修改區塊
+                # 🌟 權限控管：只有管理者能看到這個區塊
                 if IS_ADMIN:
                     with st.expander("✏️ 手動修改專利狀態 (編輯後立即生效)"):
                         col_e1, col_e2, col_e3 = st.columns([2, 2, 1])
@@ -713,7 +726,8 @@ elif st.session_state.active_tab == PAGES[2]:
                 with col_c1:
                     with st.container(border=True, height=480):
                         st.markdown(f"#### 🎯 研發戰略看板\n**{str(rd_data.get('title', '未知'))}**")
-                        st.markdown(f"**🔥 解決痛點：** {str(rd_data.get('problem', ''))}\n**💡 核心解法：** {str(rd_data.get('solution', ''))}")
+                        # 🌟 修正換行問題，使用兩個 \n 來強制定出 Markdown 段落
+                        st.markdown(f"**🔥 解決痛點：** {str(rd_data.get('problem', ''))}\n\n**💡 核心解法：** {str(rd_data.get('solution', ''))}")
 
                 with col_c2:
                     with st.container(border=True, height=480):
@@ -848,6 +862,7 @@ elif st.session_state.active_tab == PAGES[2]:
                                 hotspots_html += f"""
                                 <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')"></div>"""
 
+                    # 🌟 完整套用包含 Tooltip 的 HTML
                     html_skeleton = f"""
                     <!DOCTYPE html><html><head>{VIEWER_CSS_JS}</head><body>
                     <div class="main-container">
@@ -873,7 +888,7 @@ elif st.session_state.active_tab == PAGES[2]:
                             }).execute()
                             st.success("✅ 工單已成功送出！管理者將會盡快處理。")
                         except Exception as e:
-                            st.error(f"送出工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+                            st.error(f"送出工單失敗，請確認是否已建立 `support_tickets` 資料表且包含對應欄位。錯誤：{e}")
 
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
