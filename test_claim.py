@@ -13,7 +13,7 @@ import plotly.express as px
 from PIL import Image, ImageOps
 
 # ==========================================
-# ⚙️ 1. 系統初始化與雙金鑰負載平衡 (雲端安全版)
+# ⚙️ 1. 系統初始化與金鑰負載平衡 
 # ==========================================
 st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
 
@@ -32,7 +32,7 @@ if get_config(["GOOGLE_API_KEY_2"]): key_pool.append(st.secrets["GOOGLE_API_KEY_
 if not key_pool and get_config(["GOOGLE_API_KEY"]): key_pool.append(st.secrets["GOOGLE_API_KEY"])
 
 if not all([S_URL, S_KEY, key_pool]):
-    st.error("❌ 系統偵測到雲端 Secrets 設定缺失！請在 Streamlit 後台檢查 SUPABASE_URL, SUPABASE_KEY, GOOGLE_API_KEY 是否填寫正確。")
+    st.error("❌ 系統偵測到雲端 Secrets 設定缺失！請檢查 Streamlit 後台設定。")
     st.stop()
 
 SELECTED_G_KEY = random.choice(key_pool)
@@ -58,7 +58,7 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 2. 輔助函數
+# 🛠️ 2. 輔助函數 (加入金剛不壞 JSON 解析器)
 # ==========================================
 def parse_ai_json(text_or_dict):
     if isinstance(text_or_dict, dict): return text_or_dict
@@ -132,10 +132,28 @@ def create_word_doc(text):
     return bio.getvalue()
 
 # ==========================================
-# 📊 3. 側邊欄與標題
+# 📊 3. 動態側邊欄導覽 (解決一鍵跳轉痛點)
 # ==========================================
+PAGES = [
+    "📥 模組一：雲端探勘匯入", 
+    "📊 模組二：研發知識庫", 
+    "🕵️ 模組三：單篇深度拆解", 
+    "🗺️ 模組四：傳統宏觀地圖",
+    "⚔️ 模組五：組合核駁分析"
+]
+
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = PAGES[1] # 預設在模組二
+
 with st.sidebar:
-    st.markdown("### ☁️ 雲端資料庫狀態")
+    st.title("🏍️ 系統導覽列")
+    
+    # 動態切換頁面
+    selected_page = st.radio("選擇功能模組：", PAGES, index=PAGES.index(st.session_state.active_tab))
+    st.session_state.active_tab = selected_page
+    
+    st.markdown("---")
+    st.markdown("### ☁️ 資料庫狀態")
     try:
         res_all = supabase.table('patents').select("id", count="exact").execute()
         st.info(f"🗄️ 雲端總筆數: {res_all.count if res_all.count else 0}")
@@ -153,30 +171,12 @@ with st.sidebar:
         st.session_state.thumbnail_base64 = None
         st.rerun()
 
-    st.markdown("---")
-    st.markdown("⚠️ **開發者選項：**")
-    if st.button("🚨 清空雲端資料庫 (危險)", use_container_width=True):
-        try:
-            supabase.table('patents').delete().neq('status', 'NONE').execute()
-            st.success("已清空！請重新匯入。")
-            time.sleep(1)
-            st.rerun()
-        except: st.error("清空失敗")
-
 st.title("🏍️ 機車專利 AI 戰略分析系統")
 
-tab_ingest, tab_dashboard, tab_single, tab_macro, tab_combine = st.tabs([
-    "📥 模組一：雲端探勘匯入", 
-    "📊 模組二：研發知識庫", 
-    "🕵️ 模組三：單篇深度拆解", 
-    "🗺️ 模組四：傳統宏觀地圖",
-    "⚔️ 模組五：組合核駁分析"
-])
-
 # ==========================================
-# 模組一：雲端探勘與資料匯入
+# 📥 模組一：雲端探勘與資料匯入
 # ==========================================
-with tab_ingest:
+if st.session_state.active_tab == PAGES[0]:
     st.header("1. TWPAT 資料匯入與狀態更新")
     uploaded_excel = st.file_uploader("上傳 TWPAT 匯出的 Excel/CSV (請另存為 .xlsx 格式)", type=["xlsx", "xls", "csv"])
 
@@ -297,9 +297,9 @@ with tab_ingest:
             st.rerun()
 
 # ==========================================
-# 模組二：研發知識庫與任務分發
+# 📊 模組二：研發知識庫與任務分發
 # ==========================================
-with tab_dashboard:
+elif st.session_state.active_tab == PAGES[1]:
     completed_df = fetch_patents_from_db('COMPLETED')
     if completed_df.empty:
         st.warning("⚠️ 目前無已分析的資料，請先至模組一匯入。")
@@ -355,16 +355,17 @@ with tab_dashboard:
 
         st.info(f"✨ 檢索出 **{len(filtered_df)}** 筆專利。")
 
-        selected_ids = [k.split("chk_")[1] for k, v in st.session_state.items() if k.startswith("chk_") and v]
         col_act1, col_act2 = st.columns(2)
         with col_act1:
             if st.button(f"🗺️ 將下方 {len(filtered_df)} 筆專利送往【傳統宏觀地圖】分析", use_container_width=True, type="primary"):
                 st.session_state.target_macro_pool = filtered_df
                 st.session_state.ai_macro_matrix = None
-                st.toast("✅ 已傳送！請點擊上方『模組四』頁籤檢視圖表。")
+                st.session_state.active_tab = PAGES[3] # 直接跳轉模組四
+                st.rerun()
         with col_act2:
             if st.button(f"⚔️ 切換至【模組五】進行組合分析", use_container_width=True, type="secondary"):
-                st.toast("👉 請點擊上方『模組五』頁籤開啟分析引擎！")
+                st.session_state.active_tab = PAGES[4] # 直接跳轉模組五
+                st.rerun()
         
         st.markdown("---")
 
@@ -407,19 +408,24 @@ with tab_dashboard:
                         st.markdown(f"<div style='border-left: 4px solid #ddd; padding-left: 15px; color: #555; line-height: 1.6; font-size: 15px;'>💡 **核心解法：**{solution_text}</div>", unsafe_allow_html=True)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("📄 進入單篇深度拆解 (解鎖圖面)", key=f"btn_s_{disp_id}", use_container_width=True):
+                    # 🌟 解決跳轉痛點：點擊後立刻清理暫存，並跳轉至模組三
+                    if st.button("📄 進入單篇深度拆解 (解鎖圖文連動)", key=f"btn_s_{disp_id}", use_container_width=True):
                         st.session_state.target_single_patent = p.to_dict()
                         st.session_state.pdf_bytes_main = None 
-                        st.session_state.thumbnail_base64 = None 
-                        st.balloons()
-                        st.success(f"✅ 已鎖定 [{disp_id}]！請點擊上方 **「🕵️ 模組三：單篇深度拆解」** 頁籤。")
+                        st.session_state.rd_card_data = {}
+                        st.session_state.claim_data_t2 = {}
+                        st.session_state.ip_report_content = ""
+                        st.session_state.scanned_pages = {}
+                        st.session_state.thumbnail_base64 = None
+                        st.session_state.active_tab = PAGES[2] # 瞬間跳轉！
+                        st.rerun()
 
 # ==========================================
-# 🌟 模組三：單篇深度拆解工作站
+# 🕵️ 模組三：單篇深度拆解工作站 (解耦 PDF 上傳邏輯)
 # ==========================================
-with tab_single:
+elif st.session_state.active_tab == PAGES[2]:
     if not st.session_state.target_single_patent:
-        st.warning("👈 請先至【模組二：研發知識庫】挑選一篇專利，並點擊「進入單篇深度拆解」。")
+        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】挑選一篇專利。")
     else:
         target = st.session_state.target_single_patent
         target_id = target.get('證書號') or target.get('申請號')
@@ -427,50 +433,37 @@ with tab_single:
         is_utility_model = str(target_id).upper().startswith('M')
         applicant_main = target.get('專利權人', '未知')
         
-        latest_res = supabase.table('patents').select("rd_card_json, vis_data_json, ip_report_text, thumbnail_base64").eq('id', db_id).execute()
-        has_cache = False
-        has_thumb = False
-        if latest_res.data and latest_res.data[0].get('rd_card_json'):
-            has_cache = True
-            cached_data = latest_res.data[0]
-            if latest_res.data[0].get('thumbnail_base64'):
-                has_thumb = True
+        # 🌟 解決免傳 PDF 痛點：優先檢查雲端有沒有歷史分析紀錄
+        latest_res = supabase.table('patents').select("rd_card_json, vis_data_json, ip_report_text").eq('id', db_id).execute()
+        has_cache = bool(latest_res.data and latest_res.data[0].get('rd_card_json'))
         
+        # 若雲端有資料，且當前 Session 還是空的，就自動倒進去 (免重算、免上傳 PDF)
+        if has_cache and not st.session_state.rd_card_data:
+            st.toast("✅ 已從雲端自動載入歷史分析報告！")
+            st.session_state.rd_card_data = latest_res.data[0].get('rd_card_json') or {}
+            st.session_state.claim_data_t2 = latest_res.data[0].get('vis_data_json') or {}
+            st.session_state.ip_report_content = latest_res.data[0].get('ip_report_text') or ""
+
         st.header(f"🕵️ 單篇深度拆解：[{target_id}] {target.get('專利名稱')}")
-        
         clean_num_m = ''.join(e for e in str(target_id) if e.isalnum())
         gpt_url = f"https://patents.google.com/patent/TW{clean_num_m}B" if not is_utility_model else f"https://patents.google.com/patent/TW{clean_num_m}U"
-        
         st.markdown(f"**🏢 權利人：** {applicant_main} | **📅 公開日：** {target.get('公開公告日')} ｜ 🏷️ 類型：{target.get('專利類型')} 👉 [Google Patents 傳送門]({gpt_url})")
-        
         st.markdown("---")
-        
-        with st.container(border=True):
-            st.subheader("📥 第一步：請上傳本案之 PDF 說明書以啟動雙向連動")
-            
-            uploaded_pdf = st.file_uploader("上傳 PDF", type=["pdf"], key="pdf_deep_dive")
-            col_pg, _ = st.columns([2, 2])
-            with col_pg: target_fig_page = st.number_input("🖼️ 指定專利代表圖所在頁碼", min_value=1, value=2, key="single_rep_fig_pg")
 
-            btn_text = "⚡ 瞬間解鎖單篇深度拆解 (雲端快取)" if has_cache else "🚀 啟動單篇 AI 深度解剖 (消耗 API)"
-            
-            if st.button(btn_text, type="primary", use_container_width=True):
-                if not uploaded_pdf: st.error("⚠️ 請上傳 PDF！")
-                else:
-                    st.session_state.pdf_bytes_main = uploaded_pdf.getvalue()
-                    st.session_state.scanned_pages = {} 
-                    generated_b64 = None
-                    if not has_thumb: generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
-                    
-                    if has_cache:
-                        st.session_state.rd_card_data = cached_data.get('rd_card_json') or {}
-                        st.session_state.claim_data_t2 = cached_data.get('vis_data_json') or {}
-                        st.session_state.ip_report_content = cached_data.get('ip_report_text') or ""
-                        if generated_b64:
-                            st.session_state.thumbnail_base64 = generated_b64
-                            supabase.table('patents').update({ 'thumbnail_base64': generated_b64 }).eq('id', db_id).execute()
+        # 狀態一：全新專利，雲端沒資料，要求上傳 PDF 並啟動 AI
+        if not st.session_state.rd_card_data:
+            st.info("💡 此專利尚未進行 AI 深度拆解，請上傳 PDF 說明書以產生報告。")
+            with st.container(border=True):
+                uploaded_pdf = st.file_uploader("📂 上傳本案 PDF 說明書", type=["pdf"], key="pdf_first_upload")
+                target_fig_page = st.number_input("🖼️ 指定專利代表圖所在頁碼", min_value=1, value=2)
+                
+                if st.button("🚀 啟動 AI 全文深度拆解", type="primary", use_container_width=True):
+                    if not uploaded_pdf: st.error("⚠️ 請上傳 PDF！")
                     else:
-                        with st.spinner("🧠 AI 正在地毯式搜索全文 (約 30-40 秒)..."):
+                        st.session_state.pdf_bytes_main = uploaded_pdf.getvalue()
+                        generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
+                        
+                        with st.spinner("🧠 AI 正在地毯式搜索全文並套用 10 大天條 (約 30-40 秒)..."):
                             try:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                                     tmp_file.write(st.session_state.pdf_bytes_main)
@@ -558,11 +551,11 @@ with tab_single:
                                 }).eq('id', db_id).execute()
                                 os.remove(tmp_file_path)
                                 genai.delete_file(gemini_file.name)
+                                st.rerun()
                             except Exception as e: st.error(f"分析失敗：{e}")
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        if st.session_state.rd_card_data and st.session_state.pdf_bytes_main:
+        # 狀態二：資料已就緒 (顯示報告區塊)
+        if st.session_state.rd_card_data:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
             with sub_tab_rd:
@@ -592,8 +585,7 @@ with tab_single:
                         checked_count = 0
                         for i, risk_str in enumerate(clean_risks):
                             safe_key = f"rc_{target_id}_{i}"
-                            if st.checkbox(risk_str, key=safe_key): 
-                                checked_count += 1
+                            if st.checkbox(risk_str, key=safe_key): checked_count += 1
                         
                         st.markdown("<br>", unsafe_allow_html=True)
                         if len(clean_risks) > 0:
@@ -618,139 +610,137 @@ with tab_single:
                             st.markdown(f"✅ {avoid_str}")
 
                 st.markdown("---")
-                st.markdown("### 🎯 終極雙向連動大屏 (支援圖面旋轉)")
+                st.markdown("### 🎯 終極雙向連動大屏")
                 
-                pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
-                total_pages_v = len(pdf_doc_v)
+                # 🌟 如果沒有 PDF，提示上傳解鎖互動圖面
+                if not st.session_state.pdf_bytes_main:
+                    st.info("ℹ️ 文字分析結果已為您載入！若需使用「雙向連動圖面」與「座標鎖定」功能，請補傳此專利的 PDF 說明書。")
+                    supplement_pdf = st.file_uploader("📂 補傳 PDF 解鎖圖面功能", type=["pdf"], key="pdf_supplement")
+                    if supplement_pdf:
+                        st.session_state.pdf_bytes_main = supplement_pdf.getvalue()
+                        st.rerun()
+                else:
+                    # 有 PDF 則渲染完整互動圖面
+                    pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
+                    total_pages_v = len(pdf_doc_v)
 
-                col_page, col_rot, col_btn = st.columns([1, 1.5, 1.5])
-                with col_page:
-                    target_page = st.number_input(f"📄 圖紙頁碼 (共 {total_pages_v} 頁)", min_value=1, max_value=total_pages_v, value=min(2, total_pages_v), key="vis_page_rd")
-                with col_rot:
-                    rot_angle = st.radio("🔄 圖面旋轉", [0, 90, 180, 270], horizontal=True, key="vis_rot_angle")
-                
-                page = pdf_doc_v[target_page - 1]
-                raw_pil_img = page.render(scale=2.0).to_pil()
-                
-                if rot_angle != 0:
-                    raw_pil_img = raw_pil_img.rotate(-rot_angle, expand=True, fillcolor='white')
-                
-                # 🌟 修復座標偏移問題：確保送給 AI 分析與網頁顯示的是同一張裁切圖
-                final_cropped_img = crop_white_margins(raw_pil_img) 
-                img_byte_arr = io.BytesIO()
-                final_cropped_img.save(img_byte_arr, format='JPEG')
-                encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode()
-                img_uri = f"data:image/jpeg;base64,{encoded_img}"
-
-                scan_key = f"{target_page}_{rot_angle}"
-                is_scanned = scan_key in st.session_state.scanned_pages
-                
-                claim_data = st.session_state.claim_data_t2 or {}
-                if not isinstance(claim_data, dict): claim_data = {}
-                
-                with col_btn:
-                    st.write("")
-                    if not is_scanned:
-                        if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
-                            with st.spinner("Gemini Vision 正在極高精度鎖定座標..."):
-                                try:
-                                    raw_comps = claim_data.get("components", [])
-                                    if not isinstance(raw_comps, list): raw_comps = []
-                                    known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
-                                    
-                                    # 🌟 高精度指令加回，並使用 + 號縫合防斷行
-                                    prompt_vision = "這是一張專利圖。已知元件表：" + known_comps_str + "。\n"
-                                    prompt_vision += "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。\n"
-                                    prompt_vision += "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。\n"
-                                    prompt_vision += "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
-                                    
-                                    # 傳送最終裁切好的圖給 AI 辨識，確保座標100%對齊
-                                    response_vis = model.generate_content([final_cropped_img, prompt_vision])
-                                    ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", [])
-                                    st.session_state.scanned_pages[scan_key] = ai_visual_data
-                                    st.rerun()
-                                except Exception as e: st.error(f"視覺解析失敗：{e}")
-                    else:
-                        if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
-                        else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
-
-                raw_claims = claim_data.get("claims", [])
-                claim_lines = raw_claims if isinstance(raw_claims, list) else [str(raw_claims)]
-                
-                comp_dict_list = claim_data.get("components", [])
-                if not isinstance(comp_dict_list, list): comp_dict_list = []
-                
-                loophole_quote = str(claim_data.get("loophole_quote", ""))
-                
-                final_claims_html_list = []
-                for i, line in enumerate(claim_lines):
-                    processed_line = str(line)
+                    col_page, col_rot, col_btn = st.columns([1, 1.5, 1.5])
+                    with col_page: target_page = st.number_input(f"📄 圖紙頁碼 (共 {total_pages_v} 頁)", min_value=1, max_value=total_pages_v, value=min(2, total_pages_v), key="vis_page_rd")
+                    with col_rot: rot_angle = st.radio("🔄 圖面旋轉", [0, 90, 180, 270], horizontal=True, key="vis_rot_angle")
                     
-                    if i == 0 and loophole_quote and loophole_quote in processed_line:
-                        processed_line = processed_line.replace(loophole_quote, f'<mark class="loophole-highlight">{loophole_quote}</mark>')
+                    page = pdf_doc_v[target_page - 1]
+                    raw_pil_img = page.render(scale=2.0).to_pil()
+                    if rot_angle != 0: raw_pil_img = raw_pil_img.rotate(-rot_angle, expand=True, fillcolor='white')
                     
-                    for comp in comp_dict_list:
-                        if isinstance(comp, dict):
-                            c_num = str(comp.get("id", ""))
-                            c_name = str(comp.get("name", ""))
-                            if c_num and c_name:
-                                replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
-                                processed_line = processed_line.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
+                    final_cropped_img = crop_white_margins(raw_pil_img) 
+                    img_byte_arr = io.BytesIO()
+                    final_cropped_img.save(img_byte_arr, format='JPEG')
+                    encoded_img = base64.b64encode(img_byte_arr.getvalue()).decode()
+                    img_uri = f"data:image/jpeg;base64,{encoded_img}"
+
+                    scan_key = f"{target_page}_{rot_angle}"
+                    is_scanned = scan_key in st.session_state.scanned_pages
                     
-                    if i == 0:
-                        final_claims_html_list.append(f'<div class="independent-claim-box">{processed_line}</div>')
-                    else:
-                        final_claims_html_list.append(f'<p class="dependent-claim">{processed_line}</p>')
-                
-                claim_text_full = "".join(final_claims_html_list)
+                    claim_data = st.session_state.claim_data_t2 or {}
+                    if not isinstance(claim_data, dict): claim_data = {}
+                    
+                    with col_btn:
+                        st.write("")
+                        if not is_scanned:
+                            if st.button(f"🔍 啟動圖片標號鎖定", use_container_width=True, key="btn_scan_rd"):
+                                with st.spinner("Gemini Vision 正在估算座標..."):
+                                    try:
+                                        raw_comps = claim_data.get("components", [])
+                                        if not isinstance(raw_comps, list): raw_comps = []
+                                        known_comps_str = json.dumps(raw_comps, ensure_ascii=False)
+                                        
+                                        prompt_vision = "這是一張專利圖。已知元件表：" + known_comps_str + "。\n"
+                                        prompt_vision += "請找出圖片上「所有肉眼可見的數字標號」，並精準估算其「幾何中心點」的相對座標(x_rel, y_rel，範圍0.000~1.000，請精確到小數點後三位)。\n"
+                                        prompt_vision += "【極度要求】：座標必須極度精準地對準數字的正中心！如果該頁「無標號」或是「純文字」，請輸出空的陣列：{ \"hotspots\": [] }。\n"
+                                        prompt_vision += "嚴格輸出 JSON 格式。範例：{ \"hotspots\": [ {\"number\": \"31\", \"name\": \"汽缸頭\", \"x_rel\": 0.452, \"y_rel\": 0.551} ] }"
+                                        
+                                        response_vis = model.generate_content([final_cropped_img, prompt_vision])
+                                        ai_visual_data = parse_ai_json(response_vis.text).get("hotspots", [])
+                                        st.session_state.scanned_pages[scan_key] = ai_visual_data
+                                        st.rerun()
+                                    except Exception as e: st.error(f"視覺解析失敗：{e}")
+                        else:
+                            if not st.session_state.scanned_pages.get(scan_key): st.warning("⚡ 掃描完成，未偵測到標號。")
+                            else: st.success("⚡ 座標已鎖定！體驗下方雙向連動。")
 
-                hotspots_html = ""
-                if is_scanned:
-                    for spot in st.session_state.scanned_pages.get(scan_key, []):
-                        if isinstance(spot, dict) and str(spot.get('name', '')) != "未知":
-                            s_num = str(spot.get('number', ''))
-                            s_name = str(spot.get('name', ''))
-                            s_x = spot.get('x_rel', 0)
-                            s_y = spot.get('y_rel', 0)
-                            hotspots_html += f"""
-                            <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')"></div>"""
+                    raw_claims = claim_data.get("claims", [])
+                    claim_lines = raw_claims if isinstance(raw_claims, list) else [str(raw_claims)]
+                    
+                    comp_dict_list = claim_data.get("components", [])
+                    if not isinstance(comp_dict_list, list): comp_dict_list = []
+                    
+                    loophole_quote = str(claim_data.get("loophole_quote", ""))
+                    
+                    final_claims_html_list = []
+                    for i, line in enumerate(claim_lines):
+                        processed_line = str(line)
+                        if i == 0 and loophole_quote and loophole_quote in processed_line:
+                            processed_line = processed_line.replace(loophole_quote, f'<mark class="loophole-highlight">{loophole_quote}</mark>')
+                        
+                        for comp in comp_dict_list:
+                            if isinstance(comp, dict):
+                                c_num = str(comp.get("id", ""))
+                                c_name = str(comp.get("name", ""))
+                                if c_num and c_name:
+                                    replacement = f'<span class="comp-text comp-{c_num}" onmouseover="hoverText(\'{c_num}\')" onmouseout="leaveText(\'{c_num}\')">{c_name} ({c_num})</span>'
+                                    processed_line = processed_line.replace(f"{c_name} ({c_num})", replacement).replace(c_name, replacement)
+                        
+                        if i == 0: final_claims_html_list.append(f'<div class="independent-claim-box">{processed_line}</div>')
+                        else: final_claims_html_list.append(f'<p class="dependent-claim">{processed_line}</p>')
+                    
+                    claim_text_full = "".join(final_claims_html_list)
 
-                css_style = (
-                    "<style>\n"
-                    "body { margin: 0; font-family: sans-serif; background: #fff; }\n"
-                    ".main-container { display: flex; height: 800px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }\n"
-                    ".img-section { flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; padding: 10px; display: flex; justify-content: center; align-items: flex-start;}\n"
-                    ".img-wrapper { position: relative; display: inline-block; }\n"
-                    ".patent-img { max-width: 100%; height: auto; display: block; }\n"
-                    ".hotspot { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }\n"
-                    ".hotspot:hover { background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }\n"
-                    ".hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }\n"
-                    "#tooltip { display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }\n"
-                    ".text-section { flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }\n"
-                    ".independent-claim-box { background-color: #fafafa; padding: 15px; border-radius: 8px; border-left: 6px solid #94a3b8; margin-bottom: 15px; }\n"
-                    ".loophole-highlight { background-color: #ffeb3b; font-weight: bold; color: #b45309; padding: 2px 4px; border-radius: 3px; box-shadow: 0 0 5px rgba(255, 235, 59, 0.8); }\n"
-                    ".dependent-claim { margin-bottom: 15px; color: #555; }\n"
-                    ".comp-text { color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }\n"
-                    ".highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }\n"
-                    "</style>"
-                )
+                    hotspots_html = ""
+                    if is_scanned:
+                        for spot in st.session_state.scanned_pages.get(scan_key, []):
+                            if isinstance(spot, dict) and str(spot.get('name', '')) != "未知":
+                                s_num = str(spot.get('number', ''))
+                                s_name = str(spot.get('name', ''))
+                                s_x = spot.get('x_rel', 0)
+                                s_y = spot.get('y_rel', 0)
+                                hotspots_html += f"""
+                                <div class="hotspot hotspot-marker-{s_num}" id="hotspot-{s_num}" style="left: {s_x*100}%; top: {s_y*100}%;" onmouseover="hoverImage('{s_num}', '{s_name}')" onmouseout="leaveImage('{s_num}')"></div>"""
 
-                html_skeleton = (
-                    "<!DOCTYPE html><html><head>" + css_style + "</head><body>\n"
-                    "<div class=\"main-container\">\n"
-                    "    <div class=\"img-section\" id=\"img-container\"><div class=\"img-wrapper\"><img src=\"" + img_uri + "\" class=\"patent-img\">" + hotspots_html + "</div><div id=\"tooltip\"></div></div>\n"
-                    "    <div class=\"text-section\"><div style=\"font-size:18px; font-weight:bold; color:#1e3a8a; margin-bottom:15px; position:sticky; top:0; background:white; z-index:10;\">📜 請求項對應 (特徵破口重點標記)</div>" + claim_text_full + "</div>\n"
-                    "</div>\n"
-                    "<script>\n"
-                    "    const tooltip = document.getElementById('tooltip');\n"
-                    "    function hoverImage(num, name) { document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }; tooltip.innerHTML = \"標號 <b>\" + num + \"</b> : \" + name; tooltip.style.display = 'block'; document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); }\n"
-                    "    function leaveImage(num) { document.onmousemove = null; tooltip.style.display = 'none'; document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); }\n"
-                    "    function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }\n"
-                    "    function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }\n"
-                    "</script></body></html>"
-                )
-                
-                components.html(html_skeleton, height=820, scrolling=False)
+                    css_style = (
+                        "<style>\n"
+                        "body { margin: 0; font-family: sans-serif; background: #fff; }\n"
+                        ".main-container { display: flex; height: 800px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }\n"
+                        ".img-section { flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; padding: 10px; display: flex; justify-content: center; align-items: flex-start;}\n"
+                        ".img-wrapper { position: relative; display: inline-block; }\n"
+                        ".patent-img { max-width: 100%; height: auto; display: block; }\n"
+                        ".hotspot { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }\n"
+                        ".hotspot:hover { background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }\n"
+                        ".hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }\n"
+                        "#tooltip { display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }\n"
+                        ".text-section { flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }\n"
+                        ".independent-claim-box { background-color: #fafafa; padding: 15px; border-radius: 8px; border-left: 6px solid #94a3b8; margin-bottom: 15px; }\n"
+                        ".loophole-highlight { background-color: #ffeb3b; font-weight: bold; color: #b45309; padding: 2px 4px; border-radius: 3px; box-shadow: 0 0 5px rgba(255, 235, 59, 0.8); }\n"
+                        ".dependent-claim { margin-bottom: 15px; color: #555; }\n"
+                        ".comp-text { color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }\n"
+                        ".highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }\n"
+                        "</style>"
+                    )
+
+                    html_skeleton = (
+                        "<!DOCTYPE html><html><head>" + css_style + "</head><body>\n"
+                        "<div class=\"main-container\">\n"
+                        "    <div class=\"img-section\" id=\"img-container\"><div class=\"img-wrapper\"><img src=\"" + img_uri + "\" class=\"patent-img\">" + hotspots_html + "</div><div id=\"tooltip\"></div></div>\n"
+                        "    <div class=\"text-section\"><div style=\"font-size:18px; font-weight:bold; color:#1e3a8a; margin-bottom:15px; position:sticky; top:0; background:white; z-index:10;\">📜 請求項對應 (特徵破口重點標記)</div>" + claim_text_full + "</div>\n"
+                        "</div>\n"
+                        "<script>\n"
+                        "    const tooltip = document.getElementById('tooltip');\n"
+                        "    function hoverImage(num, name) { document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }; tooltip.innerHTML = \"標號 <b>\" + num + \"</b> : \" + name; tooltip.style.display = 'block'; document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); }\n"
+                        "    function leaveImage(num) { document.onmousemove = null; tooltip.style.display = 'none'; document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); }\n"
+                        "    function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }\n"
+                        "    function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }\n"
+                        "</script></body></html>"
+                    )
+                    components.html(html_skeleton, height=820, scrolling=False)
 
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
@@ -765,66 +755,69 @@ with tab_single:
                         st.markdown(st.session_state.ip_report_content)
                 
                 with ip_tab_claim:
-                    claim_data_ip = st.session_state.claim_data_t2 or {}
-                    if not isinstance(claim_data_ip, dict): claim_data_ip = {}
-                    
-                    components_list = claim_data_ip.get("components", [])
-                    if isinstance(components_list, list) and len(components_list) > 0:
-                        comp_options = {}
-                        for c in components_list:
-                            if isinstance(c, dict):
-                                c_id = str(c.get('id', ''))
-                                c_name = str(c.get('name', ''))
-                                if c_id and c_name:
-                                    comp_options[f"[{c_id}] {c_name}"] = c
+                    if not st.session_state.pdf_bytes_main:
+                        st.info("ℹ️ 請先回到「研發看板」上傳 PDF 說明書，以解鎖智權法務的三視窗比對功能。")
+                    else:
+                        claim_data_ip = st.session_state.claim_data_t2 or {}
+                        if not isinstance(claim_data_ip, dict): claim_data_ip = {}
                         
-                        if comp_options:
-                            col_sel, _ = st.columns([1, 1])
-                            with col_sel:
-                                selected_comp = st.selectbox(f"🎯 選擇比對目標元件 (共 {len(comp_options)} 個)：", list(comp_options.keys()), key="ip_comp_sel")
-                                active_c = comp_options[selected_comp]
+                        components_list = claim_data_ip.get("components", [])
+                        if isinstance(components_list, list) and len(components_list) > 0:
+                            comp_options = {}
+                            for c in components_list:
+                                if isinstance(c, dict):
+                                    c_id = str(c.get('id', ''))
+                                    c_name = str(c.get('name', ''))
+                                    if c_id and c_name:
+                                        comp_options[f"[{c_id}] {c_name}"] = c
                             
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            col_left, col_right = st.columns([1, 1])
-                            
-                            with col_left:
-                                st.markdown("### 🧩 獨立項文義")
-                                with st.container(height=350, border=True):
-                                    raw_claims_ip = claim_data_ip.get("claims", [])
-                                    claims_ip_list = raw_claims_ip if isinstance(raw_claims_ip, list) else [str(raw_claims_ip)]
-                                    for line in claims_ip_list:
-                                        line_str = str(line)
-                                        if active_c['name'] in line_str:
-                                            hl_line = line_str.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
-                                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
-                                        else:
-                                            st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line_str}</div>", unsafe_allow_html=True)
+                            if comp_options:
+                                col_sel, _ = st.columns([1, 1])
+                                with col_sel:
+                                    selected_comp = st.selectbox(f"🎯 選擇比對目標元件 (共 {len(comp_options)} 個)：", list(comp_options.keys()), key="ip_comp_sel")
+                                    active_c = comp_options[selected_comp]
                                 
-                                st.markdown("### 🖼️ 專利圖面")
-                                pdf_doc_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
-                                pg_ip = st.number_input("頁碼", min_value=1, max_value=len(pdf_doc_ip), value=min(2, len(pdf_doc_ip)), key="ip_pg")
-                                with st.container(height=450, border=True): 
-                                    st.image(pdf_doc_ip[pg_ip - 1].render(scale=2.0).to_pil(), use_container_width=True)
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                col_left, col_right = st.columns([1, 1])
+                                
+                                with col_left:
+                                    st.markdown("### 🧩 獨立項文義")
+                                    with st.container(height=350, border=True):
+                                        raw_claims_ip = claim_data_ip.get("claims", [])
+                                        claims_ip_list = raw_claims_ip if isinstance(raw_claims_ip, list) else [str(raw_claims_ip)]
+                                        for line in claims_ip_list:
+                                            line_str = str(line)
+                                            if active_c['name'] in line_str:
+                                                hl_line = line_str.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
+                                                st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
+                                            else:
+                                                st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line_str}</div>", unsafe_allow_html=True)
+                                    
+                                    st.markdown("### 🖼️ 專利圖面")
+                                    pdf_doc_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
+                                    pg_ip = st.number_input("頁碼", min_value=1, max_value=len(pdf_doc_ip), value=min(2, len(pdf_doc_ip)), key="ip_pg")
+                                    with st.container(height=450, border=True): 
+                                        st.image(pdf_doc_ip[pg_ip - 1].render(scale=2.0).to_pil(), use_container_width=True)
 
-                            with col_right:
-                                st.markdown("### 📖 說明書具體限制")
-                                with st.container(height=895, border=True):
-                                    st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
-                                    found_texts = [t for t in claim_data_ip.get('spec_texts', []) if active_c['name'] in str(t)]
-                                    if not found_texts: st.warning("未找到說明。")
-                                    else:
-                                        for t in found_texts:
-                                            hl_t = str(t).replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
-                                            st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
+                                with col_right:
+                                    st.markdown("### 📖 說明書具體限制")
+                                    with st.container(height=895, border=True):
+                                        st.info(f"📍 目標：**{active_c['name']} ({active_c.get('id','')})**")
+                                        found_texts = [t for t in claim_data_ip.get('spec_texts', []) if active_c['name'] in str(t)]
+                                        if not found_texts: st.warning("未找到說明。")
+                                        else:
+                                            for t in found_texts:
+                                                hl_t = str(t).replace(active_c['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{active_c['name']}</mark>")
+                                                st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{hl_t}</div>", unsafe_allow_html=True)
 
 # ==========================================
 # 🗺️ 模組四：傳統宏觀地圖
 # ==========================================
-with tab_macro:
+elif st.session_state.active_tab == PAGES[3]:
     st.header("🗺️ 傳統專利大數據分析 (Macro Landscape)")
     
     if st.session_state.target_macro_pool.empty:
-        st.warning("👈 請先至【模組二：研發知識庫】設定篩選條件，並點擊「傳統專利分析」按鈕將資料送來這裡。")
+        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「將下方專利送往傳統宏觀地圖分析」按鈕。")
     else:
         df_macro = st.session_state.target_macro_pool
         st.success(f"✅ 已成功載入 **{len(df_macro)}** 筆專利進行宏觀分析！")
@@ -912,7 +905,7 @@ with tab_macro:
 # ==========================================
 # ⚔️ 模組五：組合核駁與進步性分析 (真實攻防版)
 # ==========================================
-with tab_combine:
+elif st.session_state.active_tab == PAGES[4]:
     st.header("⚔️ 模組五：組合核駁與進步性分析 (TSM 攻防引擎)")
     st.markdown("本模組基於 TIPO 專利審查基準，結合 **AI 全文理解** 與 **使用者手動輸入之 OA 特徵** 進行雙向推演。")
 
