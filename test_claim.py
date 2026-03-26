@@ -13,7 +13,7 @@ import plotly.express as px
 from PIL import Image, ImageOps
 
 # ==========================================
-# ⚙️ 1. 系統初始化與雙金鑰負載平衡
+# ⚙️ 1. 系統初始化與環境設定
 # ==========================================
 st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
 
@@ -25,6 +25,7 @@ def get_config(keys):
 
 S_URL = get_config(["SUPABASE_URL"])
 S_KEY = get_config(["SUPABASE_KEY"])
+ADMIN_ID = get_config(["ADMIN_ID"]) or "admin" # 預設管理者職號為 admin
 
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
@@ -44,6 +45,28 @@ def init_supabase() -> Client:
     return create_client(S_URL, S_KEY)
 supabase = init_supabase()
 
+# ==========================================
+# 🔐 2. 員工職號登入機制
+# ==========================================
+if 'current_user' not in st.session_state: st.session_state.current_user = None
+
+if not st.session_state.current_user:
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<h1 style='text-align: center; color: #1e3a8a;'>🏍️ 專利戰略分析系統</h1>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("### 🔐 內部人員登入")
+            job_id_input = st.text_input("請輸入您的員工職號：", placeholder="例如：EMP001")
+            if st.button("登入系統", use_container_width=True, type="primary"):
+                if job_id_input.strip():
+                    st.session_state.current_user = job_id_input.strip()
+                    st.rerun()
+                else:
+                    st.error("請輸入有效的職號！")
+    st.stop() # 阻擋未登入者看到後續畫面
+
+IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
+
 # --- 狀態安全氣囊 ---
 for key in ['selected_patents_set', 'scanned_pages']:
     if key not in st.session_state: st.session_state[key] = {} if key == 'scanned_pages' else set()
@@ -58,36 +81,8 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 2. 共用常數與輔助函數 (濃縮代碼防截斷)
+# 🛠️ 3. 輔助函數
 # ==========================================
-# 共用 CSS 與 JS (互動圖紙用)
-VIEWER_CSS_JS = """
-<style>
-    body { margin: 0; font-family: sans-serif; background: #fff; }
-    .main-container { display: flex; height: 800px; width: 100%; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
-    .img-section { flex: 6; position: relative; overflow: auto; background: #f8f9fa; border-right: 2px solid #ddd; padding: 10px; display: flex; justify-content: center; align-items: flex-start;}
-    .img-wrapper { position: relative; display: inline-block; }
-    .patent-img { max-width: 100%; height: auto; display: block; }
-    .hotspot { position: absolute; width: 40px; height: 40px; transform: translate(-50%, -50%); border-radius: 50%; cursor: pointer; transition: 0.2s; border: 2px solid transparent; z-index: 10; }
-    .hotspot:hover { background: rgba(255, 0, 0, 0.3); border: 2px solid red; box-shadow: 0 0 10px rgba(255,0,0,0.5); z-index: 50; }
-    .hotspot-active { background: rgba(255, 255, 0, 0.6) !important; border: 3px solid red !important; box-shadow: 0 0 20px red !important; transform: translate(-50%, -50%) scale(1.3); z-index: 50; }
-    #tooltip { display: none; position: absolute; background: rgba(0, 0, 0, 0.8); color: white; padding: 6px 12px; border-radius: 4px; font-size: 14px; z-index: 100; pointer-events: none; white-space: nowrap; }
-    .text-section { flex: 4; padding: 20px; overflow-y: auto; font-size: 16px; line-height: 1.8; color: #333; }
-    .independent-claim-box { background-color: #fafafa; padding: 15px; border-radius: 8px; border-left: 6px solid #94a3b8; margin-bottom: 15px; }
-    .loophole-highlight { background-color: #ffeb3b; font-weight: bold; color: #b45309; padding: 2px 4px; border-radius: 3px; box-shadow: 0 0 5px rgba(255, 235, 59, 0.8); }
-    .dependent-claim { margin-bottom: 15px; color: #555; }
-    .comp-text { color: #0284c7; font-weight: bold; cursor: pointer; border-bottom: 1px dashed #0284c7; padding: 0 2px; transition: 0.2s; }
-    .highlight-active { background-color: #fef08a; color: #b91c1c; border-bottom: none; border-radius: 3px; padding: 2px 4px; }
-</style>
-<script>
-    const tooltip = document.getElementById('tooltip');
-    function hoverImage(num, name) { document.onmousemove = e => { tooltip.style.left = (e.pageX + 15) + 'px'; tooltip.style.top = (e.pageY + 15) + 'px'; }; tooltip.innerHTML = "標號 <b>" + num + "</b> : " + name; tooltip.style.display = 'block'; document.querySelectorAll('.comp-' + num).forEach((el, i) => { el.classList.add('highlight-active'); if(i===0) el.scrollIntoView({behavior:'smooth', block:'center'}); }); }
-    function leaveImage(num) { document.onmousemove = null; tooltip.style.display = 'none'; document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); }
-    function hoverText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.add('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) { hs.classList.add('hotspot-active'); hs.scrollIntoView({behavior:'smooth', block:'center'}); } }
-    function leaveText(num) { document.querySelectorAll('.comp-' + num).forEach(el => el.classList.remove('highlight-active')); const hs = document.getElementById('hotspot-' + num); if(hs) hs.classList.remove('hotspot-active'); }
-</script>
-"""
-
 def parse_ai_json(text_or_dict):
     if isinstance(text_or_dict, dict): return text_or_dict
     try:
@@ -142,7 +137,7 @@ def generate_thumbnail_base64(pdf_bytes, page_num=2, max_size=800):
 
 def create_word_doc(text):
     doc = Document()
-    doc.add_heading('專利戰略深度分析報告 (IP 嚴謹版)', 0)
+    doc.add_heading('專利戰略深度分析報告', 0)
     for para in text.split('\n'):
         if para.strip(): doc.add_paragraph(para.strip())
     bio = io.BytesIO()
@@ -165,15 +160,25 @@ def get_patent_type(row):
     return '其他'
 
 # ==========================================
-# 📊 3. 動態側邊欄導覽 
+# 📊 4. 動態側邊欄導覽 
 # ==========================================
 PAGES = ["📥 模組一：雲端探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：傳統宏觀地圖", "⚔️ 模組五：組合核駁分析"]
+
+# 👑 如果是管理者，多顯示一個工單中心
+if IS_ADMIN:
+    PAGES.append("👑 管理者工單中心")
 
 if 'active_tab' not in st.session_state: st.session_state.active_tab = PAGES[1]
 
 with st.sidebar:
+    st.markdown(f"👤 當前使用者：**{st.session_state.current_user}**")
+    if st.button("🚪 登出", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+    st.markdown("---")
+    
     st.title("🏍️ 系統導覽列")
-    selected_page = st.radio("選擇功能模組：", PAGES, index=PAGES.index(st.session_state.active_tab))
+    selected_page = st.radio("選擇功能模組：", PAGES, index=PAGES.index(st.session_state.active_tab) if st.session_state.active_tab in PAGES else 1)
     st.session_state.active_tab = selected_page
     
     st.markdown("---")
@@ -183,8 +188,6 @@ with st.sidebar:
         st.info(f"🗄️ 雲端總筆數: {res_all.count if res_all.count else 0}")
     except: st.error("資料庫連線異常")
     
-    st.success(f"🔋 負載平衡：已啟用第 {key_pool.index(SELECTED_G_KEY)+1} 支金鑰")
-    st.markdown("---")
     if st.button("🗑️ 重置單篇暫存 (清除當前分析)", use_container_width=True):
         st.session_state.target_single_patent = None
         st.session_state.pdf_bytes_main = None
@@ -196,9 +199,52 @@ with st.sidebar:
 st.title("🏍️ 機車專利 AI 戰略分析系統")
 
 # ==========================================
+# 👑 管理者工單中心 (Admin Dashboard)
+# ==========================================
+if st.session_state.active_tab == "👑 管理者工單中心":
+    st.header("👑 管理者專屬：專家支援工單中心")
+    st.markdown("以下是各部門研發人員遇到 AI 解析瓶頸，申請您進行人工深度指導的案件：")
+    
+    try:
+        tickets_res = supabase.table('support_tickets').select("*").order('created_at', desc=True).execute()
+        tickets_df = pd.DataFrame(tickets_res.data)
+        
+        if tickets_df.empty:
+            st.success("🎉 目前沒有待處理的工單，大家都很平安！")
+        else:
+            open_tickets = tickets_df[tickets_df['status'] == 'OPEN']
+            closed_tickets = tickets_df[tickets_df['status'] == 'CLOSED']
+            
+            tab_open, tab_closed = st.tabs([f"🚨 待處理工單 ({len(open_tickets)})", f"✅ 已結案 ({len(closed_tickets)})"])
+            
+            with tab_open:
+                for _, t in open_tickets.iterrows():
+                    with st.container(border=True):
+                        st.markdown(f"### 🎫 工單號: {t['id']} | 專利號: **{t['patent_id']}**")
+                        st.caption(f"👤 申請人: {t['job_id']} | 📅 時間: {t['created_at'][:16]}")
+                        st.error(f"**🚨 員工疑慮描述：**\n{t['issue_desc']}")
+                        
+                        reply = st.text_area("✍️ 您的專業回覆與指導：", key=f"reply_{t['id']}")
+                        col_btn1, col_btn2 = st.columns([1, 4])
+                        with col_btn1:
+                            if st.button("💾 送出回覆並結案", key=f"close_{t['id']}", type="primary"):
+                                supabase.table('support_tickets').update({'admin_reply': reply, 'status': 'CLOSED'}).eq('id', t['id']).execute()
+                                st.toast("✅ 工單已結案！")
+                                time.sleep(0.5)
+                                st.rerun()
+            
+            with tab_closed:
+                for _, t in closed_tickets.iterrows():
+                    with st.expander(f"✅ [已結案] 專利號: {t['patent_id']} (申請人: {t['job_id']})"):
+                        st.write(f"**員工問題：** {t['issue_desc']}")
+                        st.success(f"**您的回覆：** {t['admin_reply']}")
+    except Exception as e:
+        st.error(f"讀取工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+
+# ==========================================
 # 📥 模組一：雲端探勘與資料匯入
 # ==========================================
-if st.session_state.active_tab == PAGES[0]:
+elif st.session_state.active_tab == PAGES[0]:
     st.header("1. TWPAT 資料匯入與狀態更新")
     uploaded_excel = st.file_uploader("上傳 TWPAT 匯出的 Excel/CSV (請另存為 .xlsx 格式)", type=["xlsx", "xls", "csv"])
 
@@ -450,7 +496,8 @@ elif st.session_state.active_tab == PAGES[1]:
                     st.write("")
                     star_btn_text = "取消收藏" if p.get('我的最愛') else "⭐ 加入最愛"
                     if st.button(star_btn_text, key=f"star_{disp_id}", use_container_width=True):
-                        supabase.table('patents').update({'is_starred': not p.get('我的最愛')}).eq('id', p['ID']).execute()
+                        new_star_status = not p.get('我的最愛')
+                        supabase.table('patents').update({'is_starred': new_star_status}).eq('id', p['ID']).execute()
                         st.rerun()
 
                     current_tags = p.get('群組標籤') if p.get('群組標籤') else ""
@@ -618,10 +665,16 @@ elif st.session_state.active_tab == PAGES[2]:
                                     'ip_report_text': st.session_state.ip_report_content,
                                     'thumbnail_base64': generated_b64
                                 }).eq('id', db_id).execute()
+                                
+                                # 🌟 獨立刪除邏輯，防止 403 Error 卡死
+                                try:
+                                    genai.delete_file(gemini_file.name)
+                                except:
+                                    pass 
+                                
                                 os.remove(tmp_file_path)
-                                genai.delete_file(gemini_file.name)
                                 st.rerun()
-                            except Exception as e: st.error(f"分析失敗：{e}")
+                            except Exception as e: st.error(f"分析發生異常：{e}")
 
         if st.session_state.rd_card_data:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
@@ -779,6 +832,24 @@ elif st.session_state.active_tab == PAGES[2]:
                     """
                     components.html(html_skeleton, height=820, scrolling=False)
 
+            # 🌟 新增：呼叫專家支援按鈕 (Ticketing System)
+            with st.expander("🚨 AI 解析結果不滿意？呼叫管理者人工深度支援"):
+                st.info("如果您認為此專利具有高度威脅，或 AI 拆解有誤，請填寫下方需求，將指派給管理者進行人工解析。")
+                issue_input = st.text_area("請描述您需要協助的部分 (例如：請求項 3 的作動機制判斷似乎有誤)")
+                if st.button("📨 送出支援工單", type="primary"):
+                    if not issue_input.strip():
+                        st.error("請先填寫需求描述再送出！")
+                    else:
+                        try:
+                            supabase.table("support_tickets").insert({
+                                "patent_id": target_id,
+                                "job_id": st.session_state.current_user,
+                                "issue_desc": issue_input.strip()
+                            }).execute()
+                            st.success("✅ 工單已成功送出！管理者將會盡快處理。")
+                        except Exception as e:
+                            st.error(f"送出工單失敗，請確認是否已建立 `support_tickets` 資料表。錯誤：{e}")
+
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
                 ip_tab_report, ip_tab_claim = st.tabs(["📄 智權戰略深度報告 (11大天條)", "⚖️ 請求項文義比對 (三視窗)"])
@@ -805,7 +876,8 @@ elif st.session_state.active_tab == PAGES[2]:
                                 if isinstance(c, dict):
                                     c_id = str(c.get('id', ''))
                                     c_name = str(c.get('name', ''))
-                                    if c_id and c_name: comp_options[f"[{c_id}] {c_name}"] = c
+                                    if c_id and c_name:
+                                        comp_options[f"[{c_id}] {c_name}"] = c
                             
                             if comp_options:
                                 col_sel, _ = st.columns([1, 1])
@@ -826,7 +898,8 @@ elif st.session_state.active_tab == PAGES[2]:
                                             if active_c['name'] in line_str:
                                                 hl_line = line_str.replace(active_c['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{active_c['name']}</span>")
                                                 st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{hl_line}</div>", unsafe_allow_html=True)
-                                            else: st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line_str}</div>", unsafe_allow_html=True)
+                                            else:
+                                                st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{line_str}</div>", unsafe_allow_html=True)
                                     
                                     st.markdown("### 🖼️ 專利圖面")
                                     pdf_doc_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
@@ -850,14 +923,16 @@ elif st.session_state.active_tab == PAGES[2]:
 # ==========================================
 elif st.session_state.active_tab == PAGES[3]:
     st.header("🗺️ 傳統專利大數據分析 (Macro Landscape)")
+    
     if st.session_state.target_macro_pool.empty:
-        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「將下方專利送往傳統宏觀地圖分析」按鈕。")
+        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「傳統專利分析」按鈕將資料送來這裡。")
     else:
         df_macro = st.session_state.target_macro_pool
         st.success(f"✅ 已成功載入 **{len(df_macro)}** 筆專利進行宏觀分析！")
         
         sub_t1, sub_t2, sub_t3, sub_t4, sub_t6 = st.tabs([
-            "🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區分析 (四階)", "🧠 AI 技術功效矩陣", "👑 核心地雷探勘"
+            "🏢 競爭者佈局", "📈 演進趨勢", "🎯 IPC 熱區分析 (四階)", 
+            "🧠 AI 技術功效矩陣", "👑 核心地雷探勘"
         ])
 
         with sub_t1:
@@ -886,12 +961,15 @@ elif st.session_state.active_tab == PAGES[3]:
                     fig_pie = px.pie(ipc_d, values='數量', names='IPC四階', hole=0.4)
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_pie, use_container_width=True)
-                else: st.info("沒有足夠的 IPC 資料可供分析。")
-            else: st.warning("請更新資料庫欄位以支援 IPC 解析。")
+                else:
+                    st.info("沒有足夠的 IPC 資料可供分析。")
+            else:
+                st.warning("⚠️ 目前的資料庫中沒有 IPC 資料。請依照上述指示更新資料庫後重新匯入 Excel。")
 
         with sub_t4:
             st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
             analyze_count = st.slider("選擇要投入 AI 矩陣分析的專利數量 (取前 N 筆)", 1, min(len(df_macro), 30), min(len(df_macro), 15), key="slider_macro")
+            
             if st.button("🚀 啟動矩陣引擎", use_container_width=True, type="primary"):
                 with st.spinner("AI 正在掃描專利機構與功效，繪製戰略地圖..."):
                     try:
@@ -908,10 +986,12 @@ elif st.session_state.active_tab == PAGES[3]:
                             "}",
                             f"資料：\n{p_data}"
                         ])
+                        
                         res = model.generate_content(prompt_matrix)
                         st.session_state.ai_macro_matrix = parse_ai_json(res.text)
                         st.success("✅ 戰略矩陣解析完成！")
-                    except Exception as e: st.error(f"分析失敗：{e}")
+                    except Exception as e: 
+                        st.error(f"分析失敗：{e}")
 
             if st.session_state.ai_macro_matrix:
                 matrix_data = (st.session_state.ai_macro_matrix or {}).get("matrix", [])
@@ -927,10 +1007,11 @@ elif st.session_state.active_tab == PAGES[3]:
                         c = "red" if "高" in p.get("威脅度", "") else "orange"
                         st.markdown(f"#### 🎯 [{p.get('專利號')}] {p.get('專利名稱')}")
                         st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
-            else: st.info("請先至左側「AI 技術功效矩陣」頁籤啟動分析。")
+            else:
+                st.info("請先至左側「AI 技術功效矩陣」頁籤啟動分析。")
 
 # ==========================================
-# ⚔️ 模組五：組合核駁與進步性分析
+# ⚔️ 模組五：組合核駁與進步性分析 (真實攻防版)
 # ==========================================
 elif st.session_state.active_tab == PAGES[4]:
     st.header("⚔️ 模組五：組合核駁與進步性分析 (TSM 攻防引擎)")
@@ -944,16 +1025,24 @@ elif st.session_state.active_tab == PAGES[4]:
         option_mapping = {f"[{row['證書號'] if row['證書號'] else row['申請號']}] {row['專利名稱']}": row for _, row in completed_df_m5.iterrows()}
 
         st.markdown("### 📚 第一步：設定背景知識 (自動抓取雲端專利解析)")
+        st.caption("AI 將會讀取您選定之引證案的底層技術邏輯，用於尋找『物理衝突』與『破壞發明目的』之防禦彈藥。")
+        
         col_m5_bg1, col_m5_bg2 = st.columns(2)
-        with col_m5_bg1: ref_a_sel = st.selectbox("📄 選擇【引證一】", options, index=0)
-        with col_m5_bg2: ref_b_sel = st.selectbox("📄 選擇【引證二】", options, index=min(1, len(options)-1))
+        with col_m5_bg1:
+            ref_a_sel = st.selectbox("📄 選擇【引證一】", options, index=0)
+        with col_m5_bg2:
+            ref_b_sel = st.selectbox("📄 選擇【引證二】", options, index=min(1, len(options)-1))
 
         st.markdown("### 🎯 第二步：手動標定攻防爭點 (來自 OA 或研發機密)")
         with st.container(border=True):
             target_feature = st.text_area("1. 🛡️ 本案欲保護/答辯之核心特徵 (請貼上被核駁之請求項，或尚未公開之研發特徵)", height=100)
+            
             col_m5_text1, col_m5_text2 = st.columns(2)
-            with col_m5_text1: ref_a_detail = st.text_area("2. 📄 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
-            with col_m5_text2: ref_b_detail = st.text_area("3. 📄 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+            with col_m5_text1:
+                ref_a_detail = st.text_area("2. 📄 【引證一】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+            with col_m5_text2:
+                ref_b_detail = st.text_area("3. 📄 【引證二】官方認定之具體揭露 (請填入 OA 指定之段落/圖式與特徵)", height=150)
+                
             examiner_logic = st.text_area("4. ⚔️ 審查委員之結合邏輯 (委員為何認為兩者具備結合動機？)", height=100)
 
         if st.button("🚀 啟動 TSM 雙向攻防分析", type="primary", use_container_width=True):
@@ -961,16 +1050,23 @@ elif st.session_state.active_tab == PAGES[4]:
                 st.error("⚠️ 請填寫完整的爭點特徵與引證揭露內容，才能進行精準打擊！")
             else:
                 with st.spinner("🤖 AI 專利代理人正在調閱背景知識，並針對您輸入的 OA 爭點進行沙盤推演 (約 20-30 秒)..."):
-                    ref_a, ref_b = option_mapping[ref_a_sel], option_mapping[ref_b_sel]
+                    ref_a = option_mapping[ref_a_sel]
+                    ref_b = option_mapping[ref_b_sel]
+
                     prompt_m5 = "\n".join([
                         "【角色設定】：你是一位熟悉台灣智財局專利審查基準、具備 20 年經驗的機車領域專利代理人（PHOSITA）。",
                         "【任務】：請基於使用者提供的「官方 OA 爭點」，並參考兩篇引證專利的全文背景，進行 TSM (結合動機) 雙向攻防推演。",
+                        "",
+                        "【使用者輸入之 OA 爭點與特徵】(你的分析靶心)：",
                         f"- 本案爭點特徵：{target_feature}",
                         f"- 引證一具體揭露 (OA指定)：{ref_a_detail}",
                         f"- 引證二具體揭露 (OA指定)：{ref_b_detail}",
                         f"- 委員結合邏輯：{examiner_logic}",
+                        "",
+                        "【背景知識參考】(用於尋找物理衝突或反向教示)：",
                         f"[引證A背景] 摘要：{ref_a['摘要']} | 核心解法：{ref_a['核心解法']}",
                         f"[引證B背景] 摘要：{ref_b['摘要']} | 核心解法：{ref_b['核心解法']}",
+                        "",
                         "【請嚴格輸出 JSON 格式進行進步性攻防評估】：",
                         "{",
                         "  \"delta_feature\": \"請精準總結引證A缺乏，而由引證B補足的『差異特徵』是什麼？\",",
@@ -986,24 +1082,31 @@ elif st.session_state.active_tab == PAGES[4]:
                         "  }",
                         "}"
                     ])
+                    
                     try:
                         res_m5 = model.generate_content(prompt_m5)
                         st.session_state.m5_result = parse_ai_json(res_m5.text) 
                         st.success("✅ TSM 雙向攻防推演完成！")
-                    except Exception as e: st.error(f"分析失敗：{e}")
+                    except Exception as e:
+                        st.error(f"分析失敗，請確認 API 連線或稍後再試。錯誤訊息：{e}")
 
         if st.session_state.m5_result:
             m5_data = st.session_state.m5_result or {}
             st.markdown("---")
             st.markdown(f"### 🎯 差異特徵 (Delta Feature)\n<div style='background-color:#e0f2fe; color:#0369a1; padding:15px; border-radius:8px; font-weight:bold; font-size:16px; border-left: 5px solid #0284c7;'>{m5_data.get('delta_feature', '')}</div><br>", unsafe_allow_html=True)
+
             tab_def, tab_atk = st.tabs(["🛡️ 防禦視角 (我方強力答辯)", "⚔️ 攻擊視角 (審查委員邏輯)"])
+
             with tab_def:
                 st.markdown("#### 🛡️ 反向教示與阻礙結合 (Teaching Away)")
                 st.error(m5_data.get('defense_argument', {}).get('teaching_away', ''))
                 st.markdown("#### ⚠️ 後見之明謬誤 (Hindsight Bias)")
                 st.warning(m5_data.get('defense_argument', {}).get('hindsight_warning', ''))
+
             with tab_atk:
                 st.markdown("#### ⚔️ 領域與問題共通性")
                 st.info(m5_data.get('attack_argument', {}).get('field_problem_match', ''))
                 st.markdown("#### 🔗 結合動機 (Motivation to Combine)")
                 st.success(m5_data.get('attack_argument', {}).get('motivation_to_combine', ''))
+
+# ===================== 🚀 程式碼到此完美結束 🚀 =====================
