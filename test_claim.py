@@ -13,7 +13,7 @@ import plotly.express as px
 from PIL import Image, ImageOps
 
 # ==========================================
-# ⚙️ 1. 系統初始化與金鑰負載平衡 
+# ⚙️ 1. 系統初始化與雙金鑰負載平衡 
 # ==========================================
 st.set_page_config(page_title="機車專利 AI 戰略分析系統", layout="wide")
 
@@ -58,7 +58,7 @@ if 'ai_macro_matrix' not in st.session_state: st.session_state.ai_macro_matrix =
 if 'm5_result' not in st.session_state: st.session_state.m5_result = {}
 
 # ==========================================
-# 🛠️ 2. 輔助函數 (加入金剛不壞 JSON 解析器)
+# 🛠️ 2. 輔助函數
 # ==========================================
 def parse_ai_json(text_or_dict):
     if isinstance(text_or_dict, dict): return text_or_dict
@@ -79,7 +79,7 @@ def clean_assignee(name):
     return name.split(' ')[0].strip() if name else "未知"
 
 DB_COL_MAP = {
-    'id': 'ID', 'app_num': '申請號', 'cert_num': '證書號', 'pub_date': '公開公告日',
+    'id': 'ID', 'app_num': '申請號', 'cert_num': '證書號', 'app_date': '申請日', 'pub_date': '公開公告日',
     'assignee': '專利權人', 'title': '專利名稱', 'abstract': '摘要', 'claims': '請求項',
     'legal_status': '案件狀態', 'status': '狀態', 'sys_main': '五大類', 'sys_sub': '次系統',
     'mechanism': '特殊機構', 'effect': '達成功效', 'solution': '核心解法',
@@ -131,8 +131,29 @@ def create_word_doc(text):
     doc.save(bio)
     return bio.getvalue()
 
+def get_ipc4(ipc_str):
+    """萃取 IPC 四階分類號"""
+    if pd.isna(ipc_str) or not ipc_str or ipc_str == "未知": return []
+    res = set()
+    for part in re.split(r'[;\|,]', str(ipc_str)):
+        match = re.search(r'([A-Z]\d{2}[A-Z])', part.strip().upper())
+        if match: res.add(match.group(1))
+    return list(res)
+
+def get_patent_type(row):
+    """精準判定專利類型"""
+    cert = str(row.get('證書號', '')).strip().upper()
+    app = str(row.get('申請號', '')).strip().upper()
+    status = str(row.get('案件狀態', ''))
+    if cert.startswith('I') or app.startswith('I'): return '發明專利 (I)'
+    if cert.startswith('M') or app.startswith('M'): return '新型專利 (M)'
+    if cert.startswith('D') or app.startswith('D'): return '設計專利 (D)'
+    # 🌟 審查中或公開階段的通常為發明專利
+    if '公開' in status or '審查' in status: return '發明專利 (I)'
+    return '其他'
+
 # ==========================================
-# 📊 3. 動態側邊欄導覽 (解決一鍵跳轉痛點)
+# 📊 3. 動態側邊欄導覽 
 # ==========================================
 PAGES = [
     "📥 模組一：雲端探勘匯入", 
@@ -143,12 +164,10 @@ PAGES = [
 ]
 
 if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = PAGES[1] # 預設在模組二
+    st.session_state.active_tab = PAGES[1]
 
 with st.sidebar:
     st.title("🏍️ 系統導覽列")
-    
-    # 動態切換頁面
     selected_page = st.radio("選擇功能模組：", PAGES, index=PAGES.index(st.session_state.active_tab))
     st.session_state.active_tab = selected_page
     
@@ -171,6 +190,16 @@ with st.sidebar:
         st.session_state.thumbnail_base64 = None
         st.rerun()
 
+    st.markdown("---")
+    st.markdown("⚠️ **開發者選項：**")
+    if st.button("🚨 清空雲端資料庫 (危險)", use_container_width=True):
+        try:
+            supabase.table('patents').delete().neq('status', 'NONE').execute()
+            st.success("已清空！請重新匯入。")
+            time.sleep(1)
+            st.rerun()
+        except: st.error("清空失敗")
+
 st.title("🏍️ 機車專利 AI 戰略分析系統")
 
 # ==========================================
@@ -178,6 +207,7 @@ st.title("🏍️ 機車專利 AI 戰略分析系統")
 # ==========================================
 if st.session_state.active_tab == PAGES[0]:
     st.header("1. TWPAT 資料匯入與狀態更新")
+    st.caption("⚠️ 請確保 Supabase patents 資料表已有 `app_date` 欄位！")
     uploaded_excel = st.file_uploader("上傳 TWPAT 匯出的 Excel/CSV (請另存為 .xlsx 格式)", type=["xlsx", "xls", "csv"])
 
     if uploaded_excel:
@@ -189,7 +219,8 @@ if st.session_state.active_tab == PAGES[0]:
                 'claim': next((c for c in df.columns if '範圍' in c or '請求' in c), None),
                 'app_num': next((c for c in df.columns if '申請號' in c), None),
                 'cert_num': next((c for c in df.columns if '證書' in c or '公告號' in c or '公開號' in c), None),
-                'date': next((c for c in df.columns if '日' in c and ('公開' in c or '公告' in c)), None),
+                'app_date': next((c for c in df.columns if '申請日' in c), None),
+                'pub_date': next((c for c in df.columns if ('公開日' in c or '公告日' in c) and '申請' not in c), None),
                 'assignee': next((c for c in df.columns if '權人' in c or '申請人' in c), None),
                 'status': next((c for c in df.columns if '狀態' in c), None),
                 'ipc': next((c for c in df.columns if 'IPC' in c.upper()), None)
@@ -223,7 +254,8 @@ if st.session_state.active_tab == PAGES[0]:
                 else:
                     new_rows_to_insert.append({
                         'app_num': app_val, 'cert_num': cert_val,
-                        'pub_date': safe_str(row[col_map['date']]) if col_map['date'] else "未知",
+                        'app_date': safe_str(row[col_map['app_date']]) if col_map['app_date'] else "未知",
+                        'pub_date': safe_str(row[col_map['pub_date']]) if col_map['pub_date'] else "未知",
                         'assignee': clean_assignee(safe_str(row[col_map['assignee']])),
                         'title': safe_str(row[col_map['title']]) if col_map['title'] else "無名稱",
                         'abstract': safe_str(row[col_map['abs']]).replace('\n', '')[:500] if col_map['abs'] else "無摘要",
@@ -304,18 +336,15 @@ elif st.session_state.active_tab == PAGES[1]:
     if completed_df.empty:
         st.warning("⚠️ 目前無已分析的資料，請先至模組一匯入。")
     else:
-        completed_df['專利類型'] = completed_df.apply(
-            lambda x: '發明專利 (I)' if str(x['證書號'] if x['證書號'] else x['申請號']).strip().upper().startswith('I') else
-                      ('新型專利 (M)' if str(x['證書號'] if x['證書號'] else x['申請號']).strip().upper().startswith('M') else
-                      ('設計專利 (D)' if str(x['證書號'] if x['證書號'] else x['申請號']).strip().upper().startswith('D') else '其他')),
-            axis=1
-        )
+        # 🌟 套用精準專利類型判定
+        completed_df['專利類型'] = completed_df.apply(get_patent_type, axis=1)
+        completed_df['IPC4'] = completed_df['IPC'].apply(get_ipc4)
 
         st.header("🔍 研發技術情報檢索 (R&D Filter Hub)")
         with st.container(border=True):
             col_f1, col_f2, col_f3 = st.columns(3)
             all_main_cats = pd.Series([cat.strip() for cats in completed_df['五大類'].astype(str) for cat in cats.split(',') if cat.strip()]).unique()
-            filter_main = col_f1.multiselect("📂 1. 技術系統分類 (支援跨部門搜尋)", list(all_main_cats))
+            filter_main = col_f1.multiselect("📂 1. 技術系統分類", list(all_main_cats))
             filter_sub = col_f2.text_input("⚙️ 2. 次系統 (精確搜尋)")
             search_query = col_f3.text_input("🔑 3. 關鍵字 (痛點/解法/機構)")
 
@@ -324,21 +353,25 @@ elif st.session_state.active_tab == PAGES[1]:
             filter_type = col_f5.multiselect("📜 5. 專利類型", ["發明專利 (I)", "新型專利 (M)", "設計專利 (D)"])
             filter_status = col_f6.multiselect("⚖️ 6. 法律狀態", ["🔴 有效專利 (公告/核准)", "🟡 審查中 (公開)", "🟢 開源/失效 (消滅/撤回/無效)"])
             
-            temp_dates = pd.to_datetime(completed_df['公開公告日'], errors='coerce')
-            min_val = temp_dates.min().date() if not pd.isna(temp_dates.min()) else datetime.date(2000, 1, 1)
-            filter_date = st.date_input("📅 7. 公開/公告日區間", value=(min_val, datetime.date.today()))
+            # 🌟 新增：雙日期與 IPC 篩選
+            col_d1, col_d2, col_d3 = st.columns(3)
+            with col_d1: filter_app_date = st.date_input("📅 申請日區間", value=[])
+            with col_d2: filter_pub_date = st.date_input("📅 公開/公告日區間", value=[])
+            with col_d3:
+                all_ipc4 = sorted(list(set(x for l in completed_df['IPC4'] for x in l)))
+                filter_ipc = st.multiselect("🏷️ IPC 分類號 (四階)", all_ipc4)
 
         filtered_df = completed_df.copy()
         
         if filter_main:
             cat_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
-            for cat in filter_main:
-                cat_mask |= filtered_df['五大類'].astype(str).str.contains(cat, na=False)
+            for cat in filter_main: cat_mask |= filtered_df['五大類'].astype(str).str.contains(cat, na=False)
             filtered_df = filtered_df[cat_mask]
             
         if filter_sub: filtered_df = filtered_df[filtered_df['次系統'].astype(str).str.contains(filter_sub, na=False)]
         if filter_company: filtered_df = filtered_df[filtered_df['專利權人'].apply(lambda x: any(c in str(x) for c in filter_company))]
         if filter_type: filtered_df = filtered_df[filtered_df['專利類型'].isin(filter_type)]
+        if filter_ipc: filtered_df = filtered_df[filtered_df['IPC4'].apply(lambda x: any(i in x for i in filter_ipc))]
         
         if filter_status:
             status_mask = pd.Series([False] * len(filtered_df), index=filtered_df.index)
@@ -348,9 +381,14 @@ elif st.session_state.active_tab == PAGES[1]:
                 elif "開源/失效" in s: status_mask |= filtered_df['案件狀態'].astype(str).str.contains("消滅|撤回|無效|核駁")
             filtered_df = filtered_df[status_mask]
 
-        if len(filter_date) == 2:
-            valid_mask = pd.to_datetime(filtered_df['公開公告日'], errors='coerce').dt.date.between(filter_date[0], filter_date[1])
-            filtered_df = filtered_df[valid_mask | (filtered_df['公開公告日'] == "未知")]
+        if filter_app_date and len(filter_app_date) == 2:
+            mask = pd.to_datetime(filtered_df['申請日'], errors='coerce').dt.date.between(filter_app_date[0], filter_app_date[1])
+            filtered_df = filtered_df[mask | (filtered_df['申請日'] == "未知")]
+            
+        if filter_pub_date and len(filter_pub_date) == 2:
+            mask = pd.to_datetime(filtered_df['公開公告日'], errors='coerce').dt.date.between(filter_pub_date[0], filter_pub_date[1])
+            filtered_df = filtered_df[mask | (filtered_df['公開公告日'] == "未知")]
+            
         if search_query: filtered_df = filtered_df[filtered_df.astype(str).apply(lambda x: x.str.contains(search_query, case=False)).any(axis=1)]
 
         st.info(f"✨ 檢索出 **{len(filtered_df)}** 筆專利。")
@@ -360,11 +398,11 @@ elif st.session_state.active_tab == PAGES[1]:
             if st.button(f"🗺️ 將下方 {len(filtered_df)} 筆專利送往【傳統宏觀地圖】分析", use_container_width=True, type="primary"):
                 st.session_state.target_macro_pool = filtered_df
                 st.session_state.ai_macro_matrix = None
-                st.session_state.active_tab = PAGES[3] # 直接跳轉模組四
+                st.session_state.active_tab = PAGES[3] 
                 st.rerun()
         with col_act2:
             if st.button(f"⚔️ 切換至【模組五】進行組合分析", use_container_width=True, type="secondary"):
-                st.session_state.active_tab = PAGES[4] # 直接跳轉模組五
+                st.session_state.active_tab = PAGES[4] 
                 st.rerun()
         
         st.markdown("---")
@@ -374,7 +412,6 @@ elif st.session_state.active_tab == PAGES[1]:
             
             with st.container(border=True):
                 col_chk, col_thumb, col_content = st.columns([0.5, 2.5, 7])
-                
                 with col_chk:
                     st.write("")
                     st.checkbox("選取", key=f"chk_{disp_id}", label_visibility="collapsed")
@@ -395,7 +432,7 @@ elif st.session_state.active_tab == PAGES[1]:
                     else:
                         st.markdown(f"#### 🔴 [{disp_id}] {p['專利名稱']}")
                     
-                    st.caption(f"🏢 權利人: {p['專利權人']} ｜ 📅 日期: {p['公開公告日']} ｜ ⚖️ 狀態: {p['案件狀態']} ｜ 🏷️ 類型: **{p['專利類型']}**")
+                    st.caption(f"🏢 權利人: {p['專利權人']} ｜ 📅 申請日: {p.get('申請日', '未知')} ｜ 📅 公開公告日: {p['公開公告日']} ｜ 🏷️ 類型: **{p['專利類型']}**")
                     
                     c1, c2, c3 = st.columns([2, 1.5, 2])
                     c1.info(f"📂 **系統分類**：\n{p['五大類']} ➡️ {p['次系統']}")
@@ -408,7 +445,6 @@ elif st.session_state.active_tab == PAGES[1]:
                         st.markdown(f"<div style='border-left: 4px solid #ddd; padding-left: 15px; color: #555; line-height: 1.6; font-size: 15px;'>💡 **核心解法：**{solution_text}</div>", unsafe_allow_html=True)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    # 🌟 解決跳轉痛點：點擊後立刻清理暫存，並跳轉至模組三
                     if st.button("📄 進入單篇深度拆解 (解鎖圖文連動)", key=f"btn_s_{disp_id}", use_container_width=True):
                         st.session_state.target_single_patent = p.to_dict()
                         st.session_state.pdf_bytes_main = None 
@@ -417,11 +453,28 @@ elif st.session_state.active_tab == PAGES[1]:
                         st.session_state.ip_report_content = ""
                         st.session_state.scanned_pages = {}
                         st.session_state.thumbnail_base64 = None
-                        st.session_state.active_tab = PAGES[2] # 瞬間跳轉！
+                        st.session_state.active_tab = PAGES[2] 
                         st.rerun()
 
+                # 🌟 新增手動修改狀態功能
+                with st.expander("✏️ 手動修改專利狀態 (編輯後立即生效)"):
+                    col_e1, col_e2, col_e3 = st.columns([2, 2, 1])
+                    with col_e1: 
+                        new_legal = st.text_input("法律狀態 (如: 審查中/核准/消滅)", value=p['案件狀態'], key=f"leg_{disp_id}")
+                    with col_e2: 
+                        sys_opts = ["COMPLETED", "PENDING", "FAILED"]
+                        idx = sys_opts.index(p['狀態']) if p['狀態'] in sys_opts else 0
+                        new_sys = st.selectbox("系統分析狀態", sys_opts, index=idx, key=f"sys_{disp_id}")
+                    with col_e3:
+                        st.write("")
+                        if st.button("💾 儲存變更", key=f"save_{disp_id}", use_container_width=True):
+                            supabase.table('patents').update({'legal_status': new_legal, 'status': new_sys}).eq('id', p['ID']).execute()
+                            st.toast("✅ 狀態已手動更新！")
+                            time.sleep(0.5)
+                            st.rerun()
+
 # ==========================================
-# 🕵️ 模組三：單篇深度拆解工作站 (解耦 PDF 上傳邏輯)
+# 🕵️ 模組三：單篇深度拆解工作站
 # ==========================================
 elif st.session_state.active_tab == PAGES[2]:
     if not st.session_state.target_single_patent:
@@ -433,11 +486,9 @@ elif st.session_state.active_tab == PAGES[2]:
         is_utility_model = str(target_id).upper().startswith('M')
         applicant_main = target.get('專利權人', '未知')
         
-        # 🌟 解決免傳 PDF 痛點：優先檢查雲端有沒有歷史分析紀錄
         latest_res = supabase.table('patents').select("rd_card_json, vis_data_json, ip_report_text").eq('id', db_id).execute()
         has_cache = bool(latest_res.data and latest_res.data[0].get('rd_card_json'))
         
-        # 若雲端有資料，且當前 Session 還是空的，就自動倒進去 (免重算、免上傳 PDF)
         if has_cache and not st.session_state.rd_card_data:
             st.toast("✅ 已從雲端自動載入歷史分析報告！")
             st.session_state.rd_card_data = latest_res.data[0].get('rd_card_json') or {}
@@ -450,7 +501,6 @@ elif st.session_state.active_tab == PAGES[2]:
         st.markdown(f"**🏢 權利人：** {applicant_main} | **📅 公開日：** {target.get('公開公告日')} ｜ 🏷️ 類型：{target.get('專利類型')} 👉 [Google Patents 傳送門]({gpt_url})")
         st.markdown("---")
 
-        # 狀態一：全新專利，雲端沒資料，要求上傳 PDF 並啟動 AI
         if not st.session_state.rd_card_data:
             st.info("💡 此專利尚未進行 AI 深度拆解，請上傳 PDF 說明書以產生報告。")
             with st.container(border=True):
@@ -463,13 +513,14 @@ elif st.session_state.active_tab == PAGES[2]:
                         st.session_state.pdf_bytes_main = uploaded_pdf.getvalue()
                         generated_b64 = generate_thumbnail_base64(st.session_state.pdf_bytes_main, page_num=target_fig_page)
                         
-                        with st.spinner("🧠 AI 正在地毯式搜索全文並套用 10 大天條 (約 30-40 秒)..."):
+                        with st.spinner("🧠 AI 正在地毯式搜索全文並套用 11 大天條 (約 30-40 秒)..."):
                             try:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                                     tmp_file.write(st.session_state.pdf_bytes_main)
                                     tmp_file_path = tmp_file.name
                                 gemini_file = genai.upload_file(tmp_file_path)
                                 
+                                # 🌟 第十一大天條加入
                                 ip_report_template = "\n".join([
                                     "【一、 🚦 FTO 風險判定】",
                                     "(🔴 紅燈：具威脅 / 🟡 黃燈：需注意 / 🟢 綠燈：已失效。並簡述判定與證書號)",
@@ -505,7 +556,10 @@ elif st.session_state.active_tab == PAGES[2]:
                                     "(提出基於破口的具體修改機構方向)",
                                     "",
                                     "【十、🧬 技術演進與機構整併雷達】",
-                                    "(分析屬於機構整併或架構重組，並說明解決了什麼困境)"
+                                    "(分析屬於機構整併或架構重組，並說明解決了什麼困境)",
+                                    "",
+                                    "【十一、 🏷️ IPC 分類號分析】",
+                                    "(列出本案的 IPC 分類號，並簡述其代表的技術領域與分類意義)"
                                 ])
 
                                 prompt_master = "\n".join([
@@ -525,12 +579,13 @@ elif st.session_state.active_tab == PAGES[2]:
                                     "    \"spec_texts\": [\"【00xx】段落內容全文\"],",
                                     "    \"loophole_quote\": \"請直接從上方【請求項】原文中，『一字不漏』複製最能代表本案特徵/破口(限制最多)的那一段文字。⚠️請勿包含習知技術，且連標點符號都必須與原文100%一致，否則系統無法上色！\"",
                                     "  },",
-                                    "  \"ip_report\": \"請填寫完下方【IP報告十點】後輸出在此，不要使用 Markdown 格式。\"",
+                                    "  \"ip_report\": \"請填寫完下方【IP報告十一點】後輸出在此，不要使用 Markdown 格式。\"",
                                     "}",
                                     "【補充指示】：",
                                     "1. rd_card.risk_check 請務必「逐項拆解請求項 1 (獨立項) 的所有全要件限制」。",
                                     "2. vis_data.claims 請務必保留「請求項全文的數字編號」，絕對不可省略。",
-                                    "3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對（例如說明書寫『第一管部22相當於下降管部』，則下降管部的 id 就是 22，絕不可誤植為 23）。",
+                                    "3. vis_data.components 請【極度精確】萃取請求項出現的元件與標號。⚠️ 絕對不可張冠李戴配錯對。",
+                                    f"\n【本案 IPC 分類號參考】：{target.get('IPC', '未知')}",
                                     "",
                                     "【IP報告結構】：",
                                     ip_report_template
@@ -554,7 +609,6 @@ elif st.session_state.active_tab == PAGES[2]:
                                 st.rerun()
                             except Exception as e: st.error(f"分析失敗：{e}")
 
-        # 狀態二：資料已就緒 (顯示報告區塊)
         if st.session_state.rd_card_data:
             sub_tab_rd, sub_tab_ip = st.tabs(["🧑‍💻 Tab 1 研發：迴避設計大屏", "⚖️ Tab 2 智權：法務審查中心"])
             
@@ -612,7 +666,6 @@ elif st.session_state.active_tab == PAGES[2]:
                 st.markdown("---")
                 st.markdown("### 🎯 終極雙向連動大屏")
                 
-                # 🌟 如果沒有 PDF，提示上傳解鎖互動圖面
                 if not st.session_state.pdf_bytes_main:
                     st.info("ℹ️ 文字分析結果已為您載入！若需使用「雙向連動圖面」與「座標鎖定」功能，請補傳此專利的 PDF 說明書。")
                     supplement_pdf = st.file_uploader("📂 補傳 PDF 解鎖圖面功能", type=["pdf"], key="pdf_supplement")
@@ -620,7 +673,6 @@ elif st.session_state.active_tab == PAGES[2]:
                         st.session_state.pdf_bytes_main = supplement_pdf.getvalue()
                         st.rerun()
                 else:
-                    # 有 PDF 則渲染完整互動圖面
                     pdf_doc_v = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
                     total_pages_v = len(pdf_doc_v)
 
@@ -744,11 +796,11 @@ elif st.session_state.active_tab == PAGES[2]:
 
             with sub_tab_ip:
                 st.markdown("## 🏛️ 智權法務審查工作站")
-                ip_tab_report, ip_tab_claim = st.tabs(["📄 智權戰略深度報告 (10大天條)", "⚖️ 請求項文義比對 (三視窗)"])
+                ip_tab_report, ip_tab_claim = st.tabs(["📄 智權戰略深度報告 (11大天條)", "⚖️ 請求項文義比對 (三視窗)"])
                 
                 with ip_tab_report:
                     col_r1, col_r2 = st.columns([3, 1])
-                    with col_r1: st.markdown("以下為嚴格遵守「智權審查 10 大天條」生成的實務報告：")
+                    with col_r1: st.markdown("以下為嚴格遵守「智權審查 11 大天條」生成的實務報告：")
                     with col_r2:
                         st.download_button("📥 下載 Word 報告", data=create_word_doc(st.session_state.ip_report_content), file_name=f"IP_Report_{target_id}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
                     with st.container(height=650, border=True):
@@ -817,7 +869,7 @@ elif st.session_state.active_tab == PAGES[3]:
     st.header("🗺️ 傳統專利大數據分析 (Macro Landscape)")
     
     if st.session_state.target_macro_pool.empty:
-        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「將下方專利送往傳統宏觀地圖分析」按鈕。")
+        st.warning("👈 請先至左側導覽列的【📊 模組二：研發知識庫】設定篩選條件，並點擊「傳統專利分析」按鈕將資料送來這裡。")
     else:
         df_macro = st.session_state.target_macro_pool
         st.success(f"✅ 已成功載入 **{len(df_macro)}** 筆專利進行宏觀分析！")
@@ -845,18 +897,16 @@ elif st.session_state.active_tab == PAGES[3]:
 
         with sub_t3:
             st.markdown("### 🎯 IPC 熱區分析 (四階)")
-            if 'IPC' in df_macro.columns and not df_macro['IPC'].astype(str).replace('未知', '').str.strip().empty:
-                df_macro['IPC_四階'] = df_macro['IPC'].apply(lambda x: str(x).split(';')[0].split('|')[0].split('(')[0].strip() if pd.notna(x) and str(x) != "未知" else "未知")
-                ipc_d = df_macro[df_macro['IPC_四階'] != '未知']['IPC_四階'].value_counts().reset_index().head(15)
-                ipc_d.columns = ['IPC四階', '數量']
-                if not ipc_d.empty:
+            if 'IPC4' in df_macro.columns:
+                all_ipc_flat = [ipc for sublist in df_macro['IPC4'] for ipc in sublist]
+                if all_ipc_flat:
+                    ipc_d = pd.Series(all_ipc_flat).value_counts().reset_index().head(15)
+                    ipc_d.columns = ['IPC四階', '數量']
                     fig_pie = px.pie(ipc_d, values='數量', names='IPC四階', hole=0.4)
                     fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                     st.plotly_chart(fig_pie, use_container_width=True)
-                else:
-                    st.info("沒有足夠的 IPC 資料可供分析。")
-            else:
-                st.warning("⚠️ 目前的資料庫中沒有 IPC 資料。請依照上述指示更新資料庫後重新匯入 Excel。")
+                else: st.info("沒有足夠的 IPC 資料可供分析。")
+            else: st.warning("請更新資料庫欄位以支援 IPC 解析。")
 
         with sub_t4:
             st.markdown("### 🧠 AI 自動生成：技術功效矩陣")
