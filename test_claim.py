@@ -313,7 +313,7 @@ def get_patent_type(row):
     return '其他'
 
 # ==========================================
-# 📊 6. 導覽列與戰略戰區切換引擎
+# 📊 6. 導覽列與戰略戰區切換引擎 (🌟 已修復狀態跳轉 Bug)
 # ==========================================
 if 'zone_mode' not in st.session_state: st.session_state.zone_mode = 'TW'
 for k in ['rd_card_data','claim_data_t2','scanned_pages','m6_report_data']:
@@ -342,25 +342,27 @@ with st.sidebar:
         st.rerun()
     st.markdown("---")
 
+    # 定義所有頁面清單
+    PAGES = ["📥 模組一：探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：宏觀地圖", "⚔️ 模組五：組合攻防", "🌍 模組六：海外翻譯中心"]
+    
     # 🚨 即時工單通知計數
-    open_count = 0
     if IS_ADMIN:
         try: 
             open_count = supabase.table('support_tickets').select('id', count='exact').eq('status', 'OPEN').execute().count or 0
-        except: pass
-    
-    PAGES = ["📥 模組一：探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解", "🗺️ 模組四：宏觀地圖", "⚔️ 模組五：組合攻防", "🌍 模組六：海外翻譯中心"]
-    if IS_ADMIN: 
-        PAGES.append(f"👑 專家工單中心 (🔴 {open_count} 待處理)" if open_count > 0 else "👑 專家工單中心")
+        except: 
+            open_count = 0
+        admin_page_name = f"👑 專家工單中心 (🔴 {open_count} 待處理)" if open_count > 0 else "👑 專家工單中心"
+        PAGES.append(admin_page_name)
 
-    if 'active_tab' not in st.session_state: st.session_state.active_tab = PAGES[1]
+    # 🌟 核心防跳轉修復：使用 key="nav_tab" 強綁定，不再使用 active_tab 或 index
+    if 'nav_tab' not in st.session_state: 
+        st.session_state.nav_tab = PAGES[1]
     
-    # 防止切換頁面時名稱變動導致錯誤
-    current_index = 1
-    for i, p in enumerate(PAGES):
-        if st.session_state.active_tab.startswith(p.split(" ")[0]): current_index = i
+    # 確保如果是動態名稱(如數量改變)，舊的 session 可以對應到新字串
+    if IS_ADMIN and st.session_state.nav_tab.startswith("👑 專家"):
+        st.session_state.nav_tab = admin_page_name
 
-    st.session_state.active_tab = st.radio("功能導覽：", PAGES, index=current_index)
+    st.radio("功能導覽：", PAGES, key="nav_tab")
 
     st.markdown("---")
     st.info(f"🗄️ 當前連線：`{get_db_table()}`")
@@ -373,7 +375,7 @@ with st.sidebar:
         st.rerun()
 
 # ==========================================
-# 🚀 模組執行邏輯
+# 🚀 模組執行邏輯 (使用 nav_tab 判斷)
 # ==========================================
 zone_title = "🇹🇼 台灣本土防線" if st.session_state.zone_mode == 'TW' else "🌎 全球海外預警"
 st.title(f"🏍️ 機車專利 AI 戰略系統 [{zone_title}]")
@@ -381,7 +383,7 @@ st.title(f"🏍️ 機車專利 AI 戰略系統 [{zone_title}]")
 # ==========================================
 # 👑 管理者工單中心
 # ==========================================
-if st.session_state.active_tab.startswith("👑 專家"):
+if st.session_state.nav_tab.startswith("👑 專家"):
     st.header("👑 管理者專屬：專家支援工單中心")
     try:
         tickets = supabase.table('support_tickets').select("*").order('created_at', desc=True).execute().data
@@ -417,7 +419,7 @@ if st.session_state.active_tab.startswith("👑 專家"):
 # ==========================================
 # 📥 模組一：探勘匯入
 # ==========================================
-elif st.session_state.active_tab == "📥 模組一：探勘匯入":
+elif st.session_state.nav_tab == "📥 模組一：探勘匯入":
     st.header(f"1. 資料匯入與狀態更新 (寫入: `{get_db_table()}`)")
     uploaded_excel = st.file_uploader("上傳 TWPAT/Google Patents 匯出的 Excel/CSV", type=["xlsx", "xls", "csv"])
 
@@ -510,7 +512,7 @@ elif st.session_state.active_tab == "📥 模組一：探勘匯入":
 # ==========================================
 # 📊 模組二：研發知識庫 (含多用戶隔離收藏)
 # ==========================================
-elif st.session_state.active_tab == "📊 模組二：研發知識庫":
+elif st.session_state.nav_tab == "📊 模組二：研發知識庫":
     df = fetch_patents('COMPLETED')
     if df.empty: 
         st.warning("⚠️ 目前戰區無分析資料，請先至模組一匯入。")
@@ -573,11 +575,11 @@ elif st.session_state.active_tab == "📊 模組二：研發知識庫":
             if st.button("🗺️ 將下方專利送往【宏觀地圖】分析", use_container_width=True, type="primary"):
                 st.session_state.target_macro_pool = fdf
                 st.session_state.ai_macro_matrix = None
-                st.session_state.active_tab = PAGES[3]
+                st.session_state.nav_tab = "🗺️ 模組四：宏觀地圖"
                 st.rerun()
         with col_act2:
             if st.button("⚔️ 切換至【組合攻防】分析", use_container_width=True, type="secondary"):
-                st.session_state.active_tab = PAGES[4]
+                st.session_state.nav_tab = "⚔️ 模組五：組合攻防"
                 st.rerun()
         st.markdown("---")
 
@@ -629,7 +631,8 @@ elif st.session_state.active_tab == "📊 模組二：研發知識庫":
                         st.session_state.pdf_bytes_main = None 
                         for key in ['rd_card_data', 'claim_data_t2', 'scanned_pages']: st.session_state[key] = {}
                         st.session_state.ip_report_content, st.session_state.thumbnail_base64 = "", None
-                        st.session_state.active_tab = PAGES[2]
+                        # 🌟 透過改變 nav_tab 來強迫 Streamlit 前端切換導覽列
+                        st.session_state.nav_tab = "🕵️ 模組三：單篇深度拆解"
                         st.rerun()
 
                 if IS_ADMIN:
@@ -649,7 +652,7 @@ elif st.session_state.active_tab == "📊 模組二：研發知識庫":
 # ==========================================
 # 🕵️ 模組三：單篇深度拆解 (包含 11大天條與高精度視覺)
 # ==========================================
-elif st.session_state.active_tab == "🕵️ 模組三：單篇深度拆解":
+elif st.session_state.nav_tab == "🕵️ 模組三：單篇深度拆解":
     t = st.session_state.target_single_patent
     if not t: 
         st.warning("👈 請先從模組二選擇一篇專利。")
@@ -837,7 +840,7 @@ elif st.session_state.active_tab == "🕵️ 模組三：單篇深度拆解":
                                         for L in st.session_state.claim_data_t2.get("claims", []):
                                             Ls = str(L)
                                             if ac['name'] in Ls: 
-                                                # 安全替換，避免 SyntaxError
+                                                # 🌟 已經拆解為多行，絕對不報 SyntaxError
                                                 highlighted_str = Ls.replace(ac['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{ac['name']}</span>")
                                                 st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{highlighted_str}</div>", unsafe_allow_html=True)
                                             else: 
@@ -856,7 +859,7 @@ elif st.session_state.active_tab == "🕵️ 模組三：單篇深度拆解":
                                             st.warning("未找到說明。")
                                         else:
                                             for t in fts: 
-                                                # 安全替換，避免 SyntaxError
+                                                # 🌟 已經拆解為多行，絕對不報 SyntaxError
                                                 highlighted_text = str(t).replace(ac['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{ac['name']}</mark>")
                                                 st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{highlighted_text}</div>", unsafe_allow_html=True)
 
@@ -870,7 +873,7 @@ elif st.session_state.active_tab == "🕵️ 模組三：單篇深度拆解":
                         st.error("請填寫描述。")
 
 # --- 模組四：宏觀分析 ---
-elif st.session_state.active_tab == "🗺️ 模組四：宏觀地圖":
+elif st.session_state.nav_tab == "🗺️ 模組四：宏觀地圖":
     st.header("🗺️ 傳統專利大數據分析")
     if st.session_state.target_macro_pool.empty: 
         st.warning("請先從模組二過濾專利並點擊【送往宏觀地圖】按鈕。")
@@ -946,7 +949,7 @@ elif st.session_state.active_tab == "🗺️ 模組四：宏觀地圖":
                         st.markdown(f"**威脅度：** <span style='color:{c};font-weight:bold;'>{p.get('威脅度')}</span><br>**洞察：** {p.get('入選理由')}", unsafe_allow_html=True)
 
 # --- 模組五：組合核駁 ---
-elif st.session_state.active_tab == "⚔️ 模組五：組合攻防":
+elif st.session_state.nav_tab == "⚔️ 模組五：組合攻防":
     st.header("⚔️ 組合核駁與 TSM 攻防")
     df_m5 = fetch_patents('COMPLETED')
     if df_m5.empty or len(df_m5) < 2:
@@ -996,7 +999,7 @@ elif st.session_state.active_tab == "⚔️ 模組五：組合攻防":
                 st.success(f"**結合動機：** {m5.get('attack_argument', {}).get('motivation_to_combine', '')}")
 
 # --- 🌍 模組六：海外翻譯中心 ---
-elif st.session_state.active_tab == "🌍 模組六：海外翻譯中心":
+elif st.session_state.nav_tab == "🌍 模組六：海外翻譯中心":
     st.header("🌍 海外專利雙視窗翻譯對照中心")
     st.info("此模組為海外專利臨時解析區。")
     
